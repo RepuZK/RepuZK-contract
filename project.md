@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**Project Name:** ZK Reputation Marketplace
+**Project Name:** RepuZK
 
 **Category:** ZK + Identity + Marketplace
 
