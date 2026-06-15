@@ -1,10 +1,9 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Map, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String, Vec, BytesN};
 
 #[contracttype]
 #[derive(Clone)]
 pub struct Issuer {
-
     pub address: Address,
     pub name: String,
     pub description: String,
@@ -25,7 +24,6 @@ pub struct CredentialType {
 
 #[contracttype]
 pub enum DataKey {
-    
     Issuer(Address),
     AllIssuers,
     IssuerCredentialTypes(Address),
@@ -100,7 +98,6 @@ impl IssuerRegistry {
         true
     }
 
-
     pub fn remove_issuer(env: Env, issuer_address: Address) -> bool {
         let admin = Self::get_admin(&env);
         admin.require_auth();
@@ -114,7 +111,7 @@ impl IssuerRegistry {
         env.storage().instance().remove(&DataKey::Issuer(issuer_address.clone()));
 
         // Remove from list of all issuers
-        let mut issuers: Vec<Address> = env
+        let issuers: Vec<Address> = env
             .storage()
             .instance()
             .get(&DataKey::AllIssuers)
@@ -148,7 +145,8 @@ impl IssuerRegistry {
 
     /// Check if an address is a registered issuer
     pub fn is_issuer(env: Env, address: Address) -> bool {
-        match env.storage().instance().get(&DataKey::Issuer(address)) {
+        let key = DataKey::Issuer(address);
+        match env.storage().instance().get::<DataKey, Issuer>(&key) {
             Some(issuer) => issuer.is_active,
             None => false,
         }
@@ -318,7 +316,7 @@ impl IssuerRegistry {
         user_address: Address,
         credential_id: String,
         credential_data_hash: BytesN<32>,
-        expires_at: u64,
+        expires_at: u32,
     ) -> bool {
         // Verify issuer is authorized
         issuer_address.require_auth();
@@ -339,7 +337,7 @@ impl IssuerRegistry {
         env.storage().persistent().set(&credential_key, &credential_data_hash);
         
         if expires_at > 0 {
-            // Set expiration if needed
+            // Set expiration if needed (convert u32 to u32, it's already correct)
             env.storage().persistent().extend_ttl(&credential_key, expires_at, expires_at);
         }
 
