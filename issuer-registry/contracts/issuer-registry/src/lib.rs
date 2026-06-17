@@ -1,2 +1,2 @@
 mod test;
-mod issuer_registry;
+pub mod issuer_registry;

@@ -13,3 +13,5 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+issuer-registry = { path = "../../../issuer-registry/contracts/issuer-registry" }
+reputation-registry = { path = "../../../reputation-registry/contracts/reputation-registry" }
