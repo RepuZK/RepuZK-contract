@@ -1,8 +1,13 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, Address, Env, String, Vec, BytesN, Map, 
-    Symbol
+    contract, contractimpl, contractclient, contracttype, Address, Env, String, Vec, BytesN, Map,
+    Symbol,
 };
+
+#[contractclient(name = "IssuerRegistryClient")]
+pub trait IssuerRegistryInterface {
+    fn is_issuer(env: Env, address: Address) -> bool;
+}
 
 // ==================== Data Structures ====================
 
@@ -684,9 +689,11 @@ impl ReputationRegistry {
     // ============ Helper Functions ============
     
     /// Verify issuer is registered and active
-    fn verify_issuer(_env: &Env, _issuer: Address) {
-        // Note: This requires calling the IssuerRegistry contract
-        // Implement cross-contract call here
-        // In production: call issuer_registry.is_issuer(issuer)
+    fn verify_issuer(env: &Env, issuer: Address) {
+        let registry: Address = env.storage().instance().get(&DataKey::IssuerRegistry).unwrap();
+        let client = IssuerRegistryClient::new(env, &registry);
+        if !client.is_issuer(&issuer) {
+            panic!("issuer not registered or inactive");
+        }
     }
 }
