@@ -2,474 +2,302 @@
 
 ## Project Overview
 
-**Project Name:** RepuZK
-
+**Project Name:** RepuZK  
 **Category:** ZK + Identity + Marketplace
 
-## Description
+### Description
 
-A decentralized reputation network built on Stellar where users can prove trustworthiness, work completion rates, contribution history, skill achievements, or platform reputation using zero-knowledge proofs (ZKPs) without revealing personal information, transaction history, or private records.
+A decentralized reputation network built on Stellar where users can prove trustworthiness, work completion rates, contribution history, and skill achievements using zero-knowledge proofs — without revealing personal information, transaction history, or private records.
 
-Instead of showing sensitive data such as:
-
-- Exact earnings
-- Number of completed jobs
-- Wallet balances
-- Personal identity
-- Client information
-- Work history
-
-Users generate cryptographic proofs that verify claims like:
+Instead of exposing sensitive data like exact earnings, client lists, or wallet history, users generate cryptographic proofs that verify claims such as:
 
 - "I completed more than 100 freelance jobs."
 - "My success rate is above 95%."
 - "I have never been involved in a dispute."
-- "I own a verified developer badge."
 - "My reputation score exceeds 800."
 
-without revealing the underlying data.
+The trust is real. The data stays private.
+
+---
 
 ## Problem
 
-Current reputation systems are:
+Current reputation systems fail in three ways:
 
 ### Centralized
+Platforms like Upwork, Fiverr, GitHub, and Airbnb own your reputation data. You built it — they hold it. Users cannot transfer reputation between platforms.
 
-Platforms like:
-
-- Upwork
-- Fiverr
-- Uber
-- GitHub
-- Airbnb
-
-own the reputation data.
-
-Users cannot easily transfer their reputation.
-
-### Privacy Invasive
-
-To verify trustworthiness, users expose:
-
-- Reviews
-- History
-- Ratings
-- Personal information
-
-which can be exploited.
+### Privacy-Invasive
+Verifying trustworthiness forces users to expose reviews, ratings, history, and personal information — data that can be exploited.
 
 ### Non-Portable
+A user with 1,000 GitHub contributions, 500 Fiverr jobs, and a 5-star rating starts from zero the moment they move to a new platform.
 
-Reputation remains trapped within a single platform.
-
-A user with:
-
-- 1000 GitHub contributions
-- 500 Fiverr jobs
-- 5-star Uber rating
-
-starts from zero elsewhere.
+---
 
 ## Solution
 
-Build a Stellar-powered reputation layer where:
+A Stellar-powered reputation layer where:
 
-- Platforms issue verifiable credentials.
-- Reputation is stored as attestations.
-- ZK proofs verify reputation claims.
-- Stellar stores proof records.
-- Users control their own reputation identity.
+- Platforms issue verifiable credentials
+- Reputation is stored as attestations
+- ZK proofs verify claims without revealing raw data
+- Stellar anchors proof records on-chain
+- Users own and control their reputation identity
+
+---
 
 ## Real Use Cases
 
-### Freelance Reputation
+| Domain | What's Proved | What Stays Private |
+|---|---|---|
+| Freelancing | Success rate > 95% | Clients, projects, earnings |
+| DAO / Governance | Contributed to 50+ proposals | Wallet history, voting choices |
+| Lending | Reputation score > 800 | Financial records |
+| Hiring | 1,000 GitHub contributions, 20 audits | Private repositories |
+| Education | GPA > 3.5, course completed | Transcripts, institution |
 
-A user proves:
-
-- Success Rate > 95%
-
-without revealing:
-
-- clients
-- projects
-- earnings
-
-### DAO Contributor Reputation
-
-A contributor proves:
-
-- Contributed to 50 governance proposals
-
-without revealing wallet history.
-
-### Lending
-
-Borrowers prove:
-
-- Reputation Score > 800
-
-without exposing financial records.
-
-### Hiring
-
-Developers prove:
-
-- GitHub contributions > 1000
-- Completed 20 audits
-- Own Certified Developer Badge
-
-without exposing private repositories.
-
-### Education
-
-Students prove:
-
-- Completed course
-- GPA > 3.5
-
-without revealing transcripts.
+---
 
 ## System Architecture
 
-```text
-+-----------------------+
-| Reputation Sources    |
-+-----------------------+
-        |
-        |
-        v
-+-----------------------+
-| Attestation Service   |
-+-----------------------+
-        |
-        |
-        v
-+-----------------------+
-| ZK Proof Generator    |
-+-----------------------+
-        |
-        |
-        v
-+-----------------------+
-| Stellar Smart Contract|
-+-----------------------+
-        |
-        |
-        v
-+-----------------------+
-| Reputation Marketplace|
-+-----------------------+
 ```
+Reputation Sources (Fiverr, GitHub, DAO, University...)
+        │
+        ▼
+Attestation Service  ──────►  Off-chain Credential Storage (IPFS / Arweave)
+        │
+        ▼
+ZK Proof Generator (Circom + SnarkJS  |  Noir + Barretenberg)
+        │
+        ▼
+┌─────────────────────────────────────────────────────┐
+│                  Stellar / Soroban                  │
+│                                                     │
+│  ┌──────────────────┐      ┌──────────────────────┐ │
+│  │  Issuer Registry │◄─────│  Reputation Registry │ │
+│  └──────────────────┘      └──────────┬───────────┘ │
+│                                       │             │
+│                          ┌────────────▼──────────┐  │
+│                          │      Marketplace      │  │
+│                          └───────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+        │
+        ▼
+  Backend API (NestJS)  ◄──►  Frontend (Next.js)
+```
+
+---
 
 ## Core Components
 
 ### 1. User Identity Layer
 
-Every user gets:
-
-- DID
-- Stellar wallet
-
-Example:
-
-- `GABCD123...`
-- linked to `did:stellar:abcd123`
+Every user gets a Stellar wallet (`GABCD123...`) linked to a DID (`did:stellar:abcd123`).
 
 ### 2. Credential Issuers
 
-Trusted issuers create credentials.
-
-Examples:
-
-**Freelance Platform**
+Trusted issuers create signed credentials off-chain:
 
 ```json
-{
-  "jobs_completed": 250,
-  "success_rate": 98,
-  "disputes": 0
-}
-```
+// Freelance Platform
+{ "jobs_completed": 250, "success_rate": 98, "disputes": 0 }
 
-**Education Platform**
+// Education Platform
+{ "course_completed": true, "gpa": 3.8 }
 
-```json
-{
-  "course_completed": true,
-  "gpa": 3.8
-}
-```
-
-**DAO**
-
-```json
-{
-  "votes": 150,
-  "proposals": 40
-}
+// DAO
+{ "votes": 150, "proposals": 40 }
 ```
 
 ### 3. Credential Storage
 
-Store credentials off-chain using options such as:
+Credentials are stored off-chain (IPFS / Arweave / Ceramic), encrypted with the user's own keys.
 
-- IPFS
-- Arweave
+### 4. ZK Proof System
 
-Ceramic
+Circuits are written in **Circom** or **Noir**. Example:
 
-Encrypted using user keys.
+```
+// Circuit input (private)
+success_rate = 98
 
-4. ZK Proof System
-
-Use:
-
-Circom
-
-or
-
-Noir
-
-Example circuit:
-
+// Constraint
 success_rate >= 95
 
-Output:
+// Output (public)
+{ "proof": "0xabc...", "public_signal": true }
+```
 
-{
-  "proof": "...",
-  "public_signal": true
-}
+The verifier confirms the statement without ever seeing the underlying score.
 
-Verifier confirms statement without seeing score.
+---
 
-Reputation Score Model
+## Reputation Score Model
 
-Formula:
+Scores range from **0 to 1000**, computed from registered proofs:
 
-Score =
-JobScore +
-GovernanceScore +
-EducationScore +
-VerificationBonus
+```
+Score = Σ(credential_type_weight × proof_count)
 
 Example:
+  250 jobs completed   →  500 pts
+  40 governance votes  →  200 pts
+  Course completed     →  100 pts
+  Verified Human       →   50 pts
+  ─────────────────────────────
+  Total                →  850 / 1000
+```
 
-250 jobs = 500 pts
+---
 
-40 proposals = 200 pts
+## ZK Statements Supported
 
-Course completed = 100 pts
+| Proof | Claim |
+|---|---|
+| Proof of Reputation | Score > 800 |
+| Proof of Experience | Jobs completed > 100 |
+| Proof of Skill | Owns Certified Developer Badge |
+| Proof of Trust | Disputes = 0 |
+| Proof of Activity | Active within last 30 days |
 
-Verified Human = 50 pts
+---
 
-Total = 850
-ZK Statements Supported
-Proof of Reputation
-Reputation > 800
-Proof of Experience
-Completed Jobs > 100
-Proof of Skill
-Own Solidity Badge
-Proof of Trust
-Disputes = 0
-Proof of Activity
-Contributed Last 30 Days
-Stellar Integration
-Why Stellar
+## Stellar Integration
 
-Stellar provides:
+**Why Stellar:**
 
-Fast settlement
-Low fees
-Soroban smart contracts
-Built-in asset support
-Global accessibility
-Soroban Contracts
-Contract 1
-Reputation Registry
+- Fast settlement and low fees
+- Soroban smart contracts
+- Built-in asset support
+- Global accessibility
 
-Stores:
+### Soroban Contracts
 
+**Contract 1 — Reputation Registry**
+
+Stores ZK proof records on-chain:
+
+```rust
 pub struct ReputationProof {
     owner: Address,
     proof_hash: BytesN<32>,
     timestamp: u64,
 }
+```
 
-Functions:
+Functions: `register_proof()` · `update_proof()` · `revoke_proof()`
 
-register_proof()
-update_proof()
-revoke_proof()
-Contract 2
-Credential Issuer Registry
+**Contract 2 — Issuer Registry**
 
-Stores approved issuers.
+Manages approved credential issuers.
 
-add_issuer()
-remove_issuer()
-is_issuer()
-Contract 3
-Reputation Marketplace
+Functions: `add_issuer()` · `remove_issuer()` · `is_issuer()`
 
-Allows:
+**Contract 3 — Reputation Marketplace**
 
-create_listing()
-verify_reputation()
-purchase_service()
-leave_feedback()
-Marketplace Flow
-Step 1
+Reputation-gated service listings with native escrow.
 
-Freelancer joins.
+Functions: `create_listing()` · `verify_reputation()` · `purchase_service()` · `leave_feedback()`
 
-Step 2
+---
 
-Uploads credential.
+## Marketplace Flow
 
-250 jobs completed
-98% success rate
-Step 3
+```
+1. Freelancer joins and uploads credential
+        { jobs: 250, success_rate: 98% }
 
-Generate ZK proof.
+2. Generate ZK proof
+        claim: success_rate > 95%
 
-success_rate > 95%
-Step 4
+3. Store proof hash on Stellar
 
-Store proof hash on Stellar.
+4. Client browses listings → verifies proof on-chain
 
-Step 5
+5. Client hires freelancer — no raw data ever exchanged
+```
 
-Client verifies proof.
+---
 
-Step 6
+## NFT Achievement Badges
 
-Client hires freelancer.
+Badges are issued as Stellar Assets and serve as credential inputs for ZK proofs:
 
-NFT Achievement Badges
+- 🏅 Top Developer
+- 🔍 Verified Auditor
+- 📦 100 Projects Completed
+- 🗳 DAO Expert
 
-Use Stellar Assets or NFTs.
+---
 
-Examples:
+## Anti-Sybil Protection
 
-Top Developer
+| Mechanism | Details |
+|---|---|
+| Human Verification | World ID or KYC provider integration |
+| Stake Requirement | Lock 10 XLM to participate |
+| Reputation Decay | Inactive users gradually lose score |
 
-Verified Auditor
+---
 
-100 Projects Completed
+## Revenue Model
 
-DAO Expert
+| Stream | Pricing |
+|---|---|
+| Proof Verification Fee | 0.5 XLM per verification |
+| Premium Reputation Reports | 5 USDC per report |
+| Issuer Subscription | Monthly fee for credential issuers |
+| API Access | Per-call pricing for recruiters / lenders |
 
-Badges become credential inputs for ZK proofs.
+---
 
-Revenue Model
-Verification Fees
-0.5 XLM
+## Technical Stack
 
-per proof verification.
+| Layer | Technology |
+|---|---|
+| Smart Contracts | Soroban (Rust), `#![no_std]` |
+| ZK Proofs | Circom + SnarkJS (Groth16) · Noir + Barretenberg |
+| Credential Storage | IPFS / Arweave (user-encrypted) |
+| Backend | NestJS, PostgreSQL, Redis |
+| Frontend | Next.js, TypeScript, Tailwind CSS |
+| Blockchain | Stellar (Testnet + Mainnet) |
 
-Premium Reputation Reports
-5 USDC
+---
 
-for detailed analytics.
+## Repository Structure
 
-Issuer Subscription
+```
+RepuZK-contract/          # Soroban smart contracts (this repo)
+├── issuer-registry/
+├── reputation-registry/
+└── marketplace/
 
-Organizations pay monthly fees to issue credentials.
+RepuZK-backend/           # ZK circuits, proof generation, credential API
+├── proof-generator/
+├── proof-verifier/
+├── credential-service/
+├── issuer-service/
+├── api/
+└── database/
 
-API Access
+RepuZK-frontend/          # User dashboard, marketplace UI, issuer panel
+├── dashboard/
+├── reputation-profile/
+├── proof-generator/
+├── marketplace/
+├── issuer-panel/
+└── analytics/
+```
 
-Recruiters pay for reputation verification APIs.
+---
 
-Anti-Sybil Protection
+## Why This Matters
 
-Prevent fake identities using:
+Most reputation systems are either public and non-private, or private but centralized. RepuZK combines Soroban smart contracts, verifiable credentials, and zero-knowledge proofs to create a privacy-preserving reputation economy on Stellar — where trust becomes a portable, transferable asset without sacrificing user privacy.
 
-Human Verification
-World ID integration
-KYC providers
-Government IDs
-Stake Requirement
+---
 
-Users lock:
+## Grant Pitch
 
-10 XLM
-
-to participate.
-
-Reputation Decay
-
-Inactive users gradually lose score.
-
-Technical Stack
-Smart Contracts
-Soroban
-Rust
-ZK Layer
-Circom
-SnarkJS
-Groth16
-
-or
-
-Noir
-Barretenberg
-Backend
-NestJS
-PostgreSQL
-Redis
-Frontend
-Next.js
-TypeScript
-Tailwind
-Storage
-IPFS
-Pinata
-Repository Structure
-Repo 1: Smart Contracts
-zk-reputation-contracts/
-
-├── reputation-registry
-├── issuer-registry
-├── marketplace
-├── tests
-└── deployments
-Repo 2: Backend & ZK Service
-zk-reputation-backend/
-
-├── proof-generator
-├── proof-verifier
-├── credential-service
-├── issuer-service
-├── api
-└── database
-Repo 3: Frontend
-zk-reputation-frontend/
-
-├── dashboard
-├── reputation-profile
-├── proof-generator
-├── marketplace
-├── issuer-panel
-└── analytics
-Stellar-Specific Innovation
-
-Most reputation systems are either:
-
-Public and non-private, or
-Private but centralized.
-
-This project combines:
-
-Soroban smart contracts
-Stellar wallets
-Verifiable credentials
-Zero-knowledge proofs
-Portable reputation
-
-to create a privacy-preserving reputation economy on Stellar, where trust becomes a transferable asset without sacrificing user privacy.
-
-Grant Pitch (Short Version)
-
-ZK Reputation Marketplace is a decentralized reputation layer for Stellar that enables users to prove achievements, trust scores, work history, and credentials using zero-knowledge proofs without revealing private data. By combining Soroban smart contracts, verifiable credentials, and ZK circuits, the platform creates portable, privacy-preserving reputation that can be used across freelancing, lending, hiring, education, and DAO ecosystems.
+> RepuZK is a decentralized reputation layer for Stellar that lets users prove achievements, trust scores, work history, and credentials using zero-knowledge proofs — without revealing private data. By combining Soroban smart contracts, verifiable credentials, and ZK circuits, the platform enables portable, privacy-preserving reputation across freelancing, lending, hiring, education, and DAO ecosystems.

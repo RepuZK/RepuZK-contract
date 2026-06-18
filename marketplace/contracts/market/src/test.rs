@@ -22,8 +22,8 @@ impl TestEnv {
         env.mock_all_auths();
 
         // --- IssuerRegistry ---
-        let ir_id = env.register(issuer_registry::IssuerRegistry, ());
-        let ir_client = issuer_registry::IssuerRegistryClient::new(&env, &ir_id);
+        let ir_id = env.register(issuer_registry::issuer_registry::IssuerRegistry, ());
+        let ir_client = issuer_registry::issuer_registry::IssuerRegistryClient::new(&env, &ir_id);
         let ir_admin = Address::generate(&env);
         ir_client.initialize(&ir_admin);
 
@@ -39,8 +39,8 @@ impl TestEnv {
         );
 
         // --- ReputationRegistry ---
-        let rr_id = env.register(reputation_registry::ReputationRegistry, ());
-        let rr_client = reputation_registry::ReputationRegistryClient::new(&env, &rr_id);
+        let rr_id = env.register(reputation_registry::reputation_registry::ReputationRegistry, ());
+        let rr_client = reputation_registry::reputation_registry::ReputationRegistryClient::new(&env, &rr_id);
         let rr_admin = Address::generate(&env);
         rr_client.initialize(&rr_admin, &ir_id);
 

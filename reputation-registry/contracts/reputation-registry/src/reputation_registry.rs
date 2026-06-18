@@ -364,6 +364,26 @@ impl ReputationRegistry {
         env.events().publish(topics, data);
     }
     
+    /// Check if a user has an active proof of the given credential type
+    pub fn has_credential(env: Env, user: Address, credential_type: String) -> bool {
+        let active = Self::get_active_user_proofs(env, user);
+        for i in 0..active.len() {
+            if active.get(i).unwrap().credential_type == credential_type {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Get user's reputation score as a plain u32 (for cross-contract callers)
+    pub fn get_score_value(env: Env, user: Address) -> u32 {
+        env.storage()
+            .instance()
+            .get::<DataKey, ReputationScore>(&DataKey::UserScore(user))
+            .map(|s| s.score)
+            .unwrap_or(0)
+    }
+
     /// Get user's reputation score
     pub fn get_reputation_score(env: Env, user: Address) -> ReputationScore {
         env.storage()

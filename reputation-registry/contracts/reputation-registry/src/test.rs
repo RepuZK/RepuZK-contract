@@ -9,9 +9,9 @@ use soroban_sdk::testutils::Ledger;
 /// Register an IssuerRegistry and add an issuer; returns (issuer_registry_id, issuer_addr)
 fn setup_issuer_registry(env: &Env) -> (Address, Address) {
     // Register the issuer registry contract
-    use issuer_registry::IssuerRegistry;
+    use issuer_registry::issuer_registry::IssuerRegistry;
     let ir_id = env.register(IssuerRegistry, ());
-    let ir_client = issuer_registry::IssuerRegistryClient::new(env, &ir_id);
+    let ir_client = issuer_registry::issuer_registry::IssuerRegistryClient::new(env, &ir_id);
 
     let admin = Address::generate(env);
     ir_client.initialize(&admin);
