@@ -8,31 +8,8 @@ use soroban_sdk::{
 
 #[contractclient(name = "ReputationRegistryClient")]
 pub trait ReputationRegistryInterface {
-    fn get_reputation_score(env: Env, user: Address) -> ReputationScore;
-    fn get_active_user_proofs(env: Env, user: Address) -> Vec<ReputationProof>;
-}
-
-// Minimal structs mirroring the registry types (needed for client deserialization)
-#[contracttype]
-#[derive(Clone)]
-pub struct ReputationScore {
-    pub score: u32,
-    pub calculated_at: u64,
-    pub proof_count: u32,
-}
-
-#[contracttype]
-#[derive(Clone)]
-pub struct ReputationProof {
-    pub owner: Address,
-    pub issuer: Address,
-    pub proof_hash: BytesN<32>,
-    pub credential_hash: BytesN<32>,
-    pub credential_type: String,
-    pub registered_at: u64,
-    pub expires_at: u64,
-    pub is_active: bool,
-    pub metadata_uri: String,
+    fn get_score_value(env: Env, user: Address) -> u32;
+    fn has_credential(env: Env, user: Address, credential_type: String) -> bool;
 }
 
 // ==================== Data Structures ====================
@@ -98,7 +75,7 @@ pub struct ReputationVerification {
 }
 
 #[contracttype]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum OrderStatus {
     Created,
     Paid,
@@ -247,20 +224,13 @@ impl ReputationMarketplace {
     fn get_user_reputation_score(env: &Env, user: &Address) -> u32 {
         let registry: Address = env.storage().instance().get(&DataKey::ReputationRegistry).unwrap();
         let client = ReputationRegistryClient::new(env, &registry);
-        client.get_reputation_score(user).score
+        client.get_score_value(user)
     }
 
     fn has_user_credential(env: &Env, user: &Address, credential: &String) -> bool {
         let registry: Address = env.storage().instance().get(&DataKey::ReputationRegistry).unwrap();
         let client = ReputationRegistryClient::new(env, &registry);
-        let proofs = client.get_active_user_proofs(user);
-        for i in 0..proofs.len() {
-            let proof = proofs.get(i).unwrap();
-            if &proof.credential_type == credential {
-                return true;
-            }
-        }
-        false
+        client.has_credential(user, credential)
     }
 
     pub fn verify_reputation(
