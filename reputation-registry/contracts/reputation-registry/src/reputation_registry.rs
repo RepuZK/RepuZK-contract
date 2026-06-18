@@ -1,4 +1,3 @@
-#![no_std]
 use soroban_sdk::{
     contract, contractimpl, contractclient, contracttype, Address, Env, String, Vec, BytesN, Map,
     Symbol,
@@ -322,18 +321,22 @@ impl ReputationRegistry {
         for i in 0..active_proofs.len() {
             let proof = active_proofs.get(i).unwrap();
             
-            // Convert String to str for comparison
-            let credential_type_str = proof.credential_type.to_string();
-            
             // Base score depends on credential type
-            let base_score = match credential_type_str.as_str() {
-                "jobs_completed" => 50,
-                "success_rate" => 70,
-                "contributions" => 40,
-                "proposals" => 45,
-                "course_completed" => 30,
-                "verified_human" => 50,
-                _ => 20,
+            let ct = &proof.credential_type;
+            let base_score = if *ct == String::from_str(env, "jobs_completed") {
+                50
+            } else if *ct == String::from_str(env, "success_rate") {
+                70
+            } else if *ct == String::from_str(env, "contributions") {
+                40
+            } else if *ct == String::from_str(env, "proposals") {
+                45
+            } else if *ct == String::from_str(env, "course_completed") {
+                30
+            } else if *ct == String::from_str(env, "verified_human") {
+                50
+            } else {
+                20
             };
             
             total_score += base_score;
