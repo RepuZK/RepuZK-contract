@@ -10,6 +10,7 @@
 [![Soroban](https://img.shields.io/badge/Smart%20Contracts-Soroban-FF6B35?style=flat-square)](https://soroban.stellar.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 [![ZK Proofs](https://img.shields.io/badge/ZK-Groth16%20%2F%20Barretenberg-blue?style=flat-square)](#)
+[![Testnet](https://img.shields.io/badge/Deployed-Testnet-brightgreen?style=flat-square)](#deployed-contracts)
 
 </div>
 
@@ -19,7 +20,7 @@
 
 RepuZK is a decentralized reputation protocol that lets anyone **prove their track record without exposing it**.
 
-A freelancer can say *"my success rate exceeds 95%"* — and prove it cryptographically — without revealing who their clients are, how much they earned, or anything else. A developer can prove *"I've completed 20 audits"* without linking to their private repos. A borrower can prove *"my reputation score is above 800"* without opening their financial history.
+A freelancer can say *"my success rate exceeds 95%"* and prove it cryptographically — without revealing clients, earnings, or anything else. A developer can prove *"I've completed 20 audits"* without linking private repos. A borrower can prove *"my score is above 800"* without opening their financial history.
 
 The trust is real. The data stays private.
 
@@ -27,19 +28,15 @@ The trust is real. The data stays private.
 
 ## The Problem
 
-Reputation today is broken in three ways:
-
 **Centralized** — Upwork, Fiverr, GitHub, and Airbnb own your reputation. You built it, but they hold it.
 
-**Non-portable** — A freelancer with 500 completed jobs starts from zero the moment they move to a new platform. Years of work, gone.
+**Non-portable** — A freelancer with 500 completed jobs starts from zero the moment they switch platforms.
 
-**Privacy-invasive** — Verifying trustworthiness means exposing reviews, earnings, work history, and personal information to strangers.
+**Privacy-invasive** — Verifying trustworthiness means exposing reviews, earnings, and personal information to strangers.
 
 ---
 
 ## The Solution
-
-RepuZK decouples reputation from platforms:
 
 - Trusted **issuers** (platforms, DAOs, institutions) sign verifiable credentials off-chain
 - Users generate **ZK proofs** attesting to claims — without revealing the raw data
@@ -53,30 +50,23 @@ Your reputation becomes a portable, cryptographic asset you own.
 ## How It Works
 
 ```
- You (User)
-    │
-    │  1. Platform issues you a signed credential (off-chain, encrypted)
-    │     e.g. { jobs: 250, success_rate: 98, disputes: 0 }
-    │
+ Platform
+    │  issues signed credential (off-chain, encrypted)
+    │  { jobs: 250, success_rate: 98, disputes: 0 }
     ▼
  ZK Proof Generator
-    │
-    │  2. You generate a proof of a claim — not the data itself
-    │     e.g. "success_rate > 95" → { proof: "0xabc...", public_signal: true }
-    │
+    │  generates proof of claim — not the data
+    │  "success_rate > 95" → { proof: "0xabc...", public_signal: true }
     ▼
- Soroban Smart Contracts (Stellar)
-    │
-    │  3. Proof hash is registered on-chain. Issuer validity is checked.
-    │     Your score is computed. Badges are awarded.
-    │
+ Soroban Smart Contracts
+    │  proof hash registered on-chain
+    │  issuer validity checked · score computed · badges awarded
     ▼
  Marketplace / Verifier
-    │
-    │  4. Anyone can verify the claim on-chain. No raw data ever leaves your hands.
-    │
+    │  anyone verifies the claim on-chain
+    │  no raw data ever leaves the user's hands
     ▼
- Client hires you. Lender approves you. DAO grants you access.
+ Client hires. Lender approves. DAO grants access.
 ```
 
 ---
@@ -98,7 +88,6 @@ ZK Proof Generator (Circom + SnarkJS  |  Noir + Barretenberg)
 │                                                     │
 │  ┌──────────────────┐      ┌──────────────────────┐ │
 │  │  Issuer Registry │◄─────│  Reputation Registry │ │
-│  │                  │      │  (score + proofs)    │ │
 │  └──────────────────┘      └──────────┬───────────┘ │
 │                                       │             │
 │                          ┌────────────▼──────────┐  │
@@ -113,129 +102,120 @@ ZK Proof Generator (Circom + SnarkJS  |  Noir + Barretenberg)
 
 ---
 
-## Organization Repositories
+## Deployed Contracts
 
-RepuZK is split across three focused repositories:
+> **Network:** Stellar Testnet
 
-| Repository | Description | Stack |
-|---|---|---|
-| 🔗 [`RepuZK-contract`](https://github.com/RepuZK/RepuZK-contract) | **This repo.** Soroban smart contracts for issuer management, proof storage, scoring, and the marketplace | Rust, Soroban |
-| ⚙️ [`RepuZK-backend`](https://github.com/RepuZK/RepuZK-backend) | ZK circuit execution, credential ingestion, proof generation API, issuer service | NestJS, Circom/Noir, PostgreSQL, Redis |
-| 🖥️ [`RepuZK-frontend`](https://github.com/RepuZK/RepuZK-frontend) | User dashboard, proof generator UI, marketplace interface, issuer panel | Next.js, TypeScript, Tailwind CSS |
+| Contract | Address |
+|---|---|
+| IssuerRegistry | [`CBKPGRVKOSSLZL3CPLHFMQOUKAFR2HJDSVOVKLNCBBZY5RYPNGI3YE6S`](https://lab.stellar.org/r/testnet/contract/CBKPGRVKOSSLZL3CPLHFMQOUKAFR2HJDSVOVKLNCBBZY5RYPNGI3YE6S) |
+| ReputationRegistry | [`CA63GY2TWJTKGECG6FPR4ITW4G5PUH3PCGY7P6HY3EC6NM2VSJIATFOK`](https://lab.stellar.org/r/testnet/contract/CA63GY2TWJTKGECG6FPR4ITW4G5PUH3PCGY7P6HY3EC6NM2VSJIATFOK) |
+| Marketplace | [`CBCUF26JXDAT64BEOWD5GPH5MNX5OAYW7BUYWSPBVJII5DSO67R6O4RE`](https://lab.stellar.org/r/testnet/contract/CBCUF26JXDAT64BEOWD5GPH5MNX5OAYW7BUYWSPBVJII5DSO67R6O4RE) |
+
+Full transaction hashes and initialization params: [`deployment.md`](./deployment.md)
 
 ---
 
-## Smart Contracts (This Repo)
+## Organization Repositories
 
-### 1. Issuer Registry — `issuer-registry`
+| Repository | Description | Stack |
+|---|---|---|
+| 🔗 [`RepuZK-contract`](https://github.com/RepuZK/RepuZK-contract) | **This repo.** Soroban smart contracts — issuer management, proof storage, scoring, marketplace | Rust, Soroban |
+| ⚙️ [`RepuZK-backend`](https://github.com/RepuZK/RepuZK-backend) | ZK circuit execution, credential ingestion, proof generation API | NestJS, Circom/Noir, PostgreSQL, Redis |
+| 🖥️ [`RepuZK-frontend`](https://github.com/RepuZK/RepuZK-frontend) | User dashboard, proof generator UI, marketplace interface | Next.js, TypeScript, Tailwind CSS |
 
-> The trust anchor. Only credentials from registered issuers are accepted by the protocol.
+---
+
+## Smart Contracts
+
+### 1. Issuer Registry
+
+The trust anchor. Only credentials from registered issuers are accepted by the protocol.
 
 | Function | Description |
 |---|---|
 | `initialize(admin)` | Set the contract admin |
 | `add_issuer(address, name, description)` | Register a trusted issuer |
-| `remove_issuer(address)` | Deactivate an issuer |
+| `remove_issuer(address)` | Remove an issuer |
 | `update_issuer_status(address, is_active)` | Toggle issuer active state |
 | `register_credential_type(issuer, id, name, schema, requires_zk)` | Define a credential schema |
-| `issue_credential(issuer, recipient, type_id, hash)` | Record a credential issuance on-chain |
-| `is_issuer(address)` | Check if an address is a valid active issuer |
-| `get_all_issuers()` / `get_active_issuers()` | List all or active issuers |
-
-**Core types:** `Issuer { address, name, description, is_active, registered_at }` · `CredentialType { id, name, schema, requires_zk }`
+| `issue_credential(issuer, recipient, type_id, hash, expires_at)` | Record a credential issuance |
+| `is_issuer(address)` | Returns `true` if address is a registered active issuer |
+| `get_all_issuers()` / `get_active_issuers()` | List issuers |
+| `transfer_admin(new_admin)` | Hand off admin role |
 
 ---
 
-### 2. Reputation Registry — `reputation-registry`
+### 2. Reputation Registry
 
-> The proof store. Manages ZK proof records, computes reputation scores, handles badges and verifications. Cross-contract calls into Issuer Registry to validate every proof source.
+The proof store. Anchors ZK proof hashes, computes scores, manages badges and verifications. Cross-contract calls into Issuer Registry to validate every proof source.
 
 | Function | Description |
 |---|---|
 | `initialize(admin, issuer_registry)` | Set admin and link to issuer registry |
-| `register_proof(owner, issuer, proof_hash, credential_hash, credential_type, expires_at, metadata_uri)` | Anchor a new ZK proof on-chain |
-| `revoke_proof(owner, proof_hash)` | Invalidate a proof |
-| `get_proof(owner, proof_hash)` | Fetch a specific proof record |
-| `get_active_proofs(owner)` | List all valid proofs for a user |
-| `get_score(owner)` | Get a full `ReputationScore` breakdown |
-| `get_score_value(owner)` | Get raw score integer (0–1000) |
-| `verify_score_threshold(owner, threshold)` | Boolean — does user meet a score floor? |
-| `has_credential(owner, credential_type)` | Check for a specific credential type |
+| `register_proof(owner, issuer, proof_hash, credential_hash, credential_type, expires_at, metadata_uri)` | Anchor a ZK proof on-chain |
+| `revoke_proof(proof_hash, revoker)` | Invalidate a proof (owner / issuer / admin) |
+| `get_active_user_proofs(user)` | List all valid, non-expired proofs for a user |
+| `get_reputation_score(user)` | Full `ReputationScore` with component breakdown |
+| `get_score_value(user)` | Raw score `u32` (consumed by Marketplace) |
+| `verify_score_threshold(user, threshold)` | Boolean — does user meet a score floor? |
+| `has_credential(user, credential_type)` | Check for a specific credential type |
 | `request_verification(requester, target, proof_hash)` | Open a verification request |
-| `complete_verification(verifier, request_id)` | Close a verification request |
-| `create_badge(badge_id, name, description, score_threshold, required_credentials)` | Define an achievement badge |
-| `award_badge(owner, badge_id)` | Award a badge to a qualifying user |
+| `complete_verification(request_id, verifier, is_valid)` | Close a verification request |
+| `create_badge(badge_id, name, description, score_threshold, required_credentials)` | Define a badge (admin) |
+| `check_and_award_badges(user)` | Evaluate all badges; award qualifying ones |
 
-**Core types:** `ReputationProof` · `ReputationScore { score, components, proof_count }` · `VerificationRequest` · `ReputationBadge`
+**Score model** — computed automatically on every proof change, capped at 1,000:
+
+```
+success_rate       → +70 pts per proof
+jobs_completed     → +50
+verified_human     → +50
+proposals          → +45
+contributions      → +40
+course_completed   → +30
+other              → +20
+```
 
 ---
 
-### 3. Marketplace — `marketplace`
+### 3. Marketplace
 
-> The economy layer. Reputation-gated service listings with native escrow, dispute resolution, and on-chain feedback.
+The economy layer. Reputation-gated service listings with native escrow, dispute resolution, and on-chain feedback.
 
 | Function | Description |
 |---|---|
-| `initialize(admin, reputation_registry, token, fee_bps)` | Bootstrap the marketplace |
-| `create_listing(provider, title, description, category, price, token, min_reputation, required_credentials, delivery_days)` | Post a service listing |
-| `update_listing(provider, listing_id, ...)` | Edit an existing listing |
-| `purchase_service(buyer, listing_id, payment_tx_hash)` | Purchase a service — funds held in escrow |
-| `complete_order(seller, order_id)` | Mark order as delivered |
-| `confirm_delivery(buyer, order_id)` | Release escrow to seller |
-| `raise_dispute(party, order_id, reason)` | Open a dispute |
-| `resolve_dispute(admin, order_id, favor_buyer)` | Admin adjudicates dispute |
-| `leave_feedback(reviewer, order_id, rating, comment, completion_proof)` | Submit post-order rating |
-| `verify_reputation(user)` | On-chain reputation snapshot for a user |
-| `get_listings_by_category(category)` | Browse listings by category |
+| `initialize(admin, reputation_registry, issuer_registry, fee_bps, fee_recipient)` | Bootstrap the marketplace |
+| `create_listing(provider, title, description, category, price, token, min_score, required_credentials, delivery_days)` | Post a service listing |
+| `update_listing(provider, listing_id, new_price?, new_is_active?)` | Edit a listing |
+| `purchase_service(buyer, listing_id, zk_proof_hash)` | Reputation check → escrow tokens → create order |
+| `start_order(seller, order_id)` | Mark order as in progress |
+| `complete_order(seller, order_id, completion_proof)` | Deliver → release escrow minus platform fee |
+| `raise_dispute(buyer, order_id, reason)` | Open a dispute |
+| `resolve_dispute(admin, order_id, release_to_seller)` | Admin adjudicates — pays seller or refunds buyer |
+| `leave_feedback(reviewer, order_id, rating, comment, completion_proof)` | Submit rating (1–5, one per order) |
+| `get_listings_by_category(category)` | Browse active listings by category |
+| `get_user_rating(user)` | Returns `(average_rating, count)` |
 
-**Core types:** `Listing` · `Order { status, amount, buyer, seller, delivery_deadline }` · `Feedback` · `ReputationVerification` · `OrderStatus { Created, Paid, Delivered, Completed, Disputed, Resolved }`
-
----
-
-## Reputation Score Model
-
-Scores range from **0 to 1000** and are computed automatically as proofs are registered.
-
+**Escrow flow:**
 ```
-Score = Σ(credential_type_weight × proof_count)
-
-Example breakdown:
-  250 jobs completed   →  500 pts
-  40 governance votes  →  200 pts
-  Course completed     →  100 pts
-  Verified human       →   50 pts
-  ─────────────────────────────
-  Total                →  850 / 1000
+purchase  →  tokens locked in contract
+complete  →  seller receives (amount - fee), fee_recipient receives fee
+dispute   →  admin decides: seller paid or buyer refunded in full
 ```
-
-Scores gate marketplace listings, lending decisions, DAO access, and badge awards.
 
 ---
 
 ## ZK Statements Supported
 
-| Claim | What's proven | What stays private |
+| Claim | Proven | Private |
 |---|---|---|
-| `success_rate > 95%` | You're a reliable provider | Exact rate, clients, earnings |
-| `jobs_completed > 100` | You have real experience | Client names, project details |
-| `reputation_score > 800` | You're highly trusted | Score breakdown, history |
+| `success_rate > 95%` | Reliable provider | Exact rate, clients, earnings |
+| `jobs_completed > 100` | Real experience | Client names, project details |
+| `reputation_score > 800` | Highly trusted | Score breakdown, history |
 | `disputes = 0` | Clean track record | All transaction data |
-| `governance_votes > 50` | Active DAO contributor | Wallet address, voting choices |
+| `governance_votes > 50` | Active DAO contributor | Wallet, voting choices |
 | `gpa > 3.5` | Academic achiever | Transcripts, institution |
-
----
-
-## Use Cases
-
-**Freelancing** — Prove work quality without doxing your client list. Move between platforms without starting over.
-
-**DeFi / Lending** — Access undercollateralized loans by proving reputation score. No financial history exposed.
-
-**DAO Governance** — Gate proposals or voting weight by contribution history without linking wallet identities.
-
-**Hiring** — Developers prove audit count and contributions to recruiters without exposing private repos.
-
-**Education** — Students prove credentials to employers without sharing transcripts.
 
 ---
 
@@ -245,16 +225,21 @@ Scores gate marketplace listings, lending decisions, DAO access, and badge award
 RepuZK-contract/
 ├── issuer-registry/
 │   └── contracts/issuer-registry/src/
-│       ├── issuer_registry.rs    # Core contract
+│       ├── lib.rs
+│       ├── issuer_registry.rs
 │       └── test.rs
 ├── reputation-registry/
 │   └── contracts/reputation-registry/src/
-│       ├── reputation_registry.rs  # Core contract
+│       ├── lib.rs
+│       ├── reputation_registry.rs
 │       └── test.rs
-└── marketplace/
-    └── contracts/market/src/
-        ├── marketplace.rs         # Core contract
-        └── test.rs
+├── marketplace/
+│   └── contracts/market/src/
+│       ├── lib.rs
+│       ├── marketplace.rs
+│       └── test.rs
+├── deployment.md      ← deployed contract addresses + tx hashes
+└── structure.md       ← full implementation + backend/frontend guide
 ```
 
 ---
@@ -264,41 +249,53 @@ RepuZK-contract/
 **Prerequisites:** [Rust](https://rustup.rs/) · [Stellar CLI](https://developers.stellar.org/docs/tools/stellar-cli)
 
 ```bash
-# Clone the repo
 git clone https://github.com/RepuZK/RepuZK-contract
 cd RepuZK-contract
 
-# Build all contracts
-cd issuer-registry && cargo build --target wasm32-unknown-unknown --release
-cd ../reputation-registry && cargo build --target wasm32-unknown-unknown --release
-cd ../marketplace && cargo build --target wasm32-unknown-unknown --release
+# Build (Rust 1.82+ requires wasm32v1-none via stellar contract build)
+cd issuer-registry && stellar contract build
+cd ../reputation-registry && stellar contract build
+cd ../marketplace && stellar contract build
 
 # Run tests
-cargo test
+cd issuer-registry && cargo test
+cd ../reputation-registry && cargo test
+cd ../marketplace && cargo test
 ```
+
+> **Note:** Use `stellar contract build` — not `cargo build --target wasm32-unknown-unknown`. Rust 1.82+ requires the `wasm32v1-none` target, which the Stellar CLI handles automatically.
 
 ### Deploy to Testnet
 
-Deploy in order — each contract depends on the one before it.
-
 ```bash
-# 1. Deploy Issuer Registry
+# 1. Deploy & initialize IssuerRegistry
 stellar contract deploy \
-  --wasm issuer-registry/target/wasm32-unknown-unknown/release/issuer_registry.wasm \
-  --network testnet --source <SECRET_KEY>
-# → Save: ISSUER_REGISTRY_CONTRACT_ID
+  --wasm issuer-registry/target/wasm32v1-none/release/issuer_registry.wasm \
+  --source <SECRET_KEY> --network testnet
 
-# 2. Deploy Reputation Registry (pass issuer registry ID)
-stellar contract deploy \
-  --wasm reputation-registry/target/wasm32-unknown-unknown/release/reputation_registry.wasm \
-  --network testnet --source <SECRET_KEY>
-# → Initialize: stellar contract invoke ... -- initialize --admin <ADMIN> --issuer_registry <ISSUER_REGISTRY_CONTRACT_ID>
+stellar contract invoke --id <ISSUER_ID> --source <SECRET_KEY> --network testnet \
+  -- initialize --admin <ADMIN_ADDRESS>
 
-# 3. Deploy Marketplace (pass reputation registry ID)
+# 2. Deploy & initialize ReputationRegistry
 stellar contract deploy \
-  --wasm marketplace/target/wasm32-unknown-unknown/release/marketplace.wasm \
-  --network testnet --source <SECRET_KEY>
-# → Initialize: stellar contract invoke ... -- initialize --admin <ADMIN> --reputation_registry <REPUTATION_REGISTRY_CONTRACT_ID> ...
+  --wasm reputation-registry/target/wasm32v1-none/release/reputation_registry.wasm \
+  --source <SECRET_KEY> --network testnet
+
+stellar contract invoke --id <REP_ID> --source <SECRET_KEY> --network testnet \
+  -- initialize --admin <ADMIN_ADDRESS> --issuer_registry <ISSUER_ID>
+
+# 3. Deploy & initialize Marketplace
+stellar contract deploy \
+  --wasm marketplace/target/wasm32v1-none/release/market.wasm \
+  --source <SECRET_KEY> --network testnet
+
+stellar contract invoke --id <MKT_ID> --source <SECRET_KEY> --network testnet \
+  -- initialize \
+  --admin <ADMIN_ADDRESS> \
+  --reputation_registry <REP_ID> \
+  --issuer_registry <ISSUER_ID> \
+  --platform_fee_bps 250 \
+  --fee_recipient <ADMIN_ADDRESS>
 ```
 
 ---
@@ -307,24 +304,24 @@ stellar contract deploy \
 
 | Layer | Technology |
 |---|---|
-| Smart Contracts | Soroban (Rust), `#![no_std]` |
+| Smart Contracts | Soroban (Rust), `#![no_std]`, `wasm32v1-none` |
 | ZK Proofs | Circom + SnarkJS (Groth16) · Noir + Barretenberg |
 | Credential Storage | IPFS / Arweave (user-encrypted) |
-| Backend API | NestJS, PostgreSQL, Redis |
+| Backend | NestJS, PostgreSQL, Redis |
 | Frontend | Next.js, TypeScript, Tailwind CSS |
-| Blockchain | Stellar (Testnet + Mainnet) |
+| Blockchain | Stellar Testnet / Mainnet |
 
 ---
 
 ## Contributing
 
-RepuZK is organized across three repos. Pick the one that matches your skills:
+RepuZK is organized across three repos — pick the one matching your skills:
 
-- **Smart contract work** → you're in the right place (`RepuZK-contract`)
+- **Smart contracts** → you're here (`RepuZK-contract`)
 - **ZK circuits & proof generation** → [`RepuZK-backend`](https://github.com/RepuZK/RepuZK-backend)
 - **UI/UX & frontend** → [`RepuZK-frontend`](https://github.com/RepuZK/RepuZK-frontend)
 
-Open an issue before submitting a large PR. We review all contributions.
+Open an issue before submitting a large PR.
 
 ---
 
