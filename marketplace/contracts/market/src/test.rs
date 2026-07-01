@@ -296,3 +296,58 @@ fn test_get_listings_by_category() {
     let empty = t.market_client.get_listings_by_category(&String::from_str(&t.env, "other"));
     assert_eq!(empty.len(), 0);
 }
+
+#[test]
+fn test_get_provider_stats() {
+    let t = TestEnv::new();
+
+    t.create_listing(1000);
+    t.create_listing(2000);
+
+    let order1 = t.market_client.purchase_service(
+        &t.buyer,
+        &1,
+        &BytesN::from_array(&t.env, &[9u8; 32]),
+    );
+
+    let order2 = t.market_client.purchase_service(
+        &t.buyer,
+        &2,
+        &BytesN::from_array(&t.env, &[9u8; 32]),
+    );
+
+    assert_eq!(t.market_client.get_provider_stats(&t.provider).total_listings, 2);
+    assert_eq!(t.market_client.get_provider_stats(&t.provider).total_orders, 2);
+    assert_eq!(t.market_client.get_provider_stats(&t.provider).completed_orders, 0);
+    assert_eq!(t.market_client.get_provider_stats(&t.provider).disputed_orders, 0);
+    assert_eq!(t.market_client.get_provider_stats(&t.provider).total_revenue, 0);
+
+    t.market_client.start_order(&t.provider, &order1);
+    t.market_client.complete_order(
+        &t.provider,
+        &order1,
+        &BytesN::from_array(&t.env, &[0u8; 32]),
+    );
+    t.market_client.leave_feedback(
+        &t.buyer,
+        &order1,
+        &5u32,
+        &String::from_str(&t.env, "Great!"),
+        &BytesN::from_array(&t.env, &[1u8; 32]),
+    );
+
+    t.market_client.start_order(&t.provider, &order2);
+    t.market_client.raise_dispute(
+        &t.buyer,
+        &order2,
+        &String::from_str(&t.env, "dispute"),
+    );
+
+    let stats = t.market_client.get_provider_stats(&t.provider);
+    assert_eq!(stats.total_listings, 2);
+    assert_eq!(stats.total_orders, 2);
+    assert_eq!(stats.completed_orders, 1);
+    assert_eq!(stats.disputed_orders, 1);
+    assert_eq!(stats.total_revenue, 975);
+    assert_eq!(stats.avg_rating, 5);
+}

@@ -1,7 +1,7 @@
 #![cfg(test)]
 
 use super::issuer_registry::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
 fn setup() -> (Env, IssuerRegistryClient<'static>, Address) {
     let env = Env::default();
@@ -51,15 +51,27 @@ fn test_add_and_get_issuer() {
 fn test_add_duplicate_issuer() {
     let (env, client, _) = setup();
     let issuer = Address::generate(&env);
-    client.add_issuer(&issuer, &String::from_str(&env, "X"), &String::from_str(&env, "Y"));
-    client.add_issuer(&issuer, &String::from_str(&env, "X"), &String::from_str(&env, "Y"));
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
 }
 
 #[test]
 fn test_remove_issuer() {
     let (env, client, _) = setup();
     let issuer = Address::generate(&env);
-    client.add_issuer(&issuer, &String::from_str(&env, "X"), &String::from_str(&env, "Y"));
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
     assert_eq!(client.get_issuer_count(), 1);
     client.remove_issuer(&issuer);
     assert_eq!(client.get_issuer_count(), 0);
@@ -70,7 +82,11 @@ fn test_remove_issuer() {
 fn test_update_issuer_status() {
     let (env, client, _) = setup();
     let issuer = Address::generate(&env);
-    client.add_issuer(&issuer, &String::from_str(&env, "X"), &String::from_str(&env, "Y"));
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
     assert!(client.is_issuer(&issuer));
 
     client.update_issuer_status(&issuer, &false);
@@ -81,10 +97,36 @@ fn test_update_issuer_status() {
 }
 
 #[test]
+fn test_toggle_lifecycle() {
+    let (env, client, _) = setup();
+    let issuer = Address::generate(&env);
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
+
+    assert!(client.is_issuer(&issuer));
+    assert_eq!(client.get_active_issuers().len(), 1);
+
+    client.update_issuer_status(&issuer, &false);
+    assert!(!client.is_issuer(&issuer));
+    assert_eq!(client.get_active_issuers().len(), 0);
+
+    client.update_issuer_status(&issuer, &true);
+    assert!(client.is_issuer(&issuer));
+    assert_eq!(client.get_active_issuers().len(), 1);
+}
+
+#[test]
 fn test_register_and_verify_credential_type() {
     let (env, client, _) = setup();
     let issuer = Address::generate(&env);
-    client.add_issuer(&issuer, &String::from_str(&env, "X"), &String::from_str(&env, "Y"));
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
 
     client.register_credential_type(
         &issuer,
@@ -104,7 +146,11 @@ fn test_issue_credential() {
     let (env, client, _) = setup();
     let issuer = Address::generate(&env);
     let user = Address::generate(&env);
-    client.add_issuer(&issuer, &String::from_str(&env, "X"), &String::from_str(&env, "Y"));
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
     client.register_credential_type(
         &issuer,
         &String::from_str(&env, "jobs_completed"),
@@ -131,12 +177,46 @@ fn test_get_all_and_active_issuers() {
     let issuer1 = Address::generate(&env);
     let issuer2 = Address::generate(&env);
 
-    client.add_issuer(&issuer1, &String::from_str(&env, "A"), &String::from_str(&env, ""));
-    client.add_issuer(&issuer2, &String::from_str(&env, "B"), &String::from_str(&env, ""));
+    client.add_issuer(
+        &issuer1,
+        &String::from_str(&env, "A"),
+        &String::from_str(&env, ""),
+    );
+    client.add_issuer(
+        &issuer2,
+        &String::from_str(&env, "B"),
+        &String::from_str(&env, ""),
+    );
     client.update_issuer_status(&issuer2, &false);
 
     assert_eq!(client.get_all_issuers().len(), 2);
     assert_eq!(client.get_active_issuers().len(), 1);
+}
+
+#[test]
+fn test_get_issuer_count() {
+    let (env, client, _) = setup();
+    let issuer1 = Address::generate(&env);
+    let issuer2 = Address::generate(&env);
+
+    assert_eq!(client.get_issuer_count(), 0);
+
+    client.add_issuer(
+        &issuer1,
+        &String::from_str(&env, "A"),
+        &String::from_str(&env, ""),
+    );
+    assert_eq!(client.get_issuer_count(), 1);
+
+    client.add_issuer(
+        &issuer2,
+        &String::from_str(&env, "B"),
+        &String::from_str(&env, ""),
+    );
+    assert_eq!(client.get_issuer_count(), 2);
+
+    client.remove_issuer(&issuer1);
+    assert_eq!(client.get_issuer_count(), 1);
 }
 
 #[test]
@@ -146,5 +226,9 @@ fn test_transfer_admin() {
     client.transfer_admin(&new_admin);
     // New admin can add issuer (old admin would fail after transfer)
     let issuer = Address::generate(&env);
-    client.add_issuer(&issuer, &String::from_str(&env, "X"), &String::from_str(&env, "Y"));
+    client.add_issuer(
+        &issuer,
+        &String::from_str(&env, "X"),
+        &String::from_str(&env, "Y"),
+    );
 }

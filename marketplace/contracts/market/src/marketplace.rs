@@ -75,6 +75,17 @@ pub struct ReputationVerification {
 
 #[contracttype]
 #[derive(Clone, PartialEq, Debug)]
+pub struct ProviderStats {
+    pub total_listings: u32,
+    pub total_orders: u32,
+    pub completed_orders: u32,
+    pub disputed_orders: u32,
+    pub avg_rating: u32,
+    pub total_revenue: i128,
+}
+
+#[contracttype]
+#[derive(Clone, PartialEq, Debug)]
 pub enum OrderStatus {
     Created,
     Paid,
@@ -661,6 +672,48 @@ impl ReputationMarketplace {
         env.storage().instance().set(&DataKey::Listing(listing_id), &listing);
 
         true
+    }
+
+    pub fn get_provider_stats(env: Env, provider: Address) -> ProviderStats {
+        let listing_ids: Vec<u64> = env
+            .storage().instance().get(&DataKey::ProviderListings(provider.clone())).unwrap_or(Vec::new(&env));
+        let total_listings = listing_ids.len() as u32;
+
+        let order_ids: Vec<u64> = env
+            .storage().instance().get(&DataKey::SellerOrders(provider.clone())).unwrap_or(Vec::new(&env));
+        let total_orders = order_ids.len() as u32;
+
+        let mut completed_orders: u32 = 0;
+        let mut disputed_orders: u32 = 0;
+        let mut total_revenue: i128 = 0;
+        let fee_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&DataKey::PlatformFeeBps)
+            .unwrap_or(250);
+        for i in 0..order_ids.len() {
+            let id = order_ids.get(i).unwrap();
+            if let Some(order) = env.storage().instance().get::<DataKey, Order>(&DataKey::Order(id)) {
+                if order.status == OrderStatus::Completed {
+                    completed_orders += 1;
+                    let fee = (order.amount * fee_bps as i128) / 10_000;
+                    total_revenue += order.amount - fee;
+                } else if order.status == OrderStatus::Disputed {
+                    disputed_orders += 1;
+                }
+            }
+        }
+
+        let (avg_rating, _) = Self::get_user_rating(env.clone(), provider.clone());
+
+        ProviderStats {
+            total_listings,
+            total_orders,
+            completed_orders,
+            disputed_orders,
+            avg_rating,
+            total_revenue,
+        }
     }
 
     pub fn get_platform_stats(env: Env) -> (u32, u32, u32) {
