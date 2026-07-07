@@ -392,6 +392,12 @@ impl ReputationMarketplace {
         order.completed_at = env.ledger().timestamp();
         env.storage().instance().set(&DataKey::Order(order_id), &order);
 
+        let topics = (Symbol::new(&env, "order"), Symbol::new(&env, "complete"));
+        env.events().publish(
+            topics,
+            (order_id, order.seller.clone(), order.buyer.clone(), order.amount, order.completed_at),
+        );
+
         true
     }
 
