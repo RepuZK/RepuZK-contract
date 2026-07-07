@@ -1,7 +1,10 @@
 #![cfg(test)]
 
 use super::issuer_registry::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use soroban_sdk::{
+    testutils::{storage::Persistent as _, Address as _, Ledger as _},
+    Address, Env, String,
+};
 
 fn setup() -> (Env, IssuerRegistryClient<'static>, Address) {
     let env = Env::default();
@@ -169,6 +172,98 @@ fn test_issue_credential() {
         &0u32,
     );
     assert!(result);
+}
+
+fn setup_credential_type(
+    env: &Env,
+    client: &IssuerRegistryClient<'static>,
+) -> (Address, Address, String) {
+    let issuer = Address::generate(env);
+    let user = Address::generate(env);
+    let credential_id = String::from_str(env, "jobs_completed");
+
+    client.add_issuer(
+        &issuer,
+        &String::from_str(env, "X"),
+        &String::from_str(env, "Y"),
+    );
+    client.register_credential_type(
+        &issuer,
+        &credential_id,
+        &String::from_str(env, "Jobs"),
+        &String::from_str(env, "desc"),
+        &String::from_str(env, "{}"),
+        &false,
+    );
+
+    (issuer, user, credential_id)
+}
+
+#[test]
+fn test_issue_credential_expires_at_zero_sets_no_ttl() {
+    let (env, client, _) = setup();
+    let (issuer, user, credential_id) = setup_credential_type(&env, &client);
+
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
+    client.issue_credential(&issuer, &user, &credential_id, &hash, &0u32);
+
+    let credential_key = (issuer, user, credential_id);
+    let default_ttl = env.ledger().get().min_persistent_entry_ttl - 1;
+
+    // No extend_ttl call was made, so the entry keeps the default TTL granted
+    // by `set` rather than any expires_at-derived value.
+    env.as_contract(&client.address, || {
+        assert_eq!(
+            env.storage().persistent().get_ttl(&credential_key),
+            default_ttl
+        );
+    });
+}
+
+#[test]
+fn test_issue_credential_past_expires_at_does_not_extend_ttl() {
+    let (env, client, _) = setup();
+    let (issuer, user, credential_id) = setup_credential_type(&env, &client);
+
+    // A timestamp already behind the current ledger. Since it is far below
+    // the default TTL granted on `set`, extend_ttl's threshold check means
+    // no extension happens.
+    let expires_at = env.ledger().sequence().saturating_sub(1);
+
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
+    client.issue_credential(&issuer, &user, &credential_id, &hash, &expires_at);
+
+    let credential_key = (issuer, user, credential_id);
+    let default_ttl = env.ledger().get().min_persistent_entry_ttl - 1;
+
+    env.as_contract(&client.address, || {
+        assert_eq!(
+            env.storage().persistent().get_ttl(&credential_key),
+            default_ttl
+        );
+    });
+}
+
+#[test]
+fn test_issue_credential_future_expires_at_extends_ttl() {
+    let (env, client, _) = setup();
+    let (issuer, user, credential_id) = setup_credential_type(&env, &client);
+
+    // Comfortably beyond the default TTL granted on `set`, so extend_ttl's
+    // threshold check triggers and the TTL is bumped to expires_at.
+    let expires_at = env.ledger().get().min_persistent_entry_ttl + 100_000;
+
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
+    client.issue_credential(&issuer, &user, &credential_id, &hash, &expires_at);
+
+    let credential_key = (issuer, user, credential_id);
+
+    env.as_contract(&client.address, || {
+        assert_eq!(
+            env.storage().persistent().get_ttl(&credential_key),
+            expires_at
+        );
+    });
 }
 
 #[test]
