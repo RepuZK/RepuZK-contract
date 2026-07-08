@@ -2,7 +2,9 @@
 
 use super::marketplace::*;
 use soroban_sdk::{
-    testutils::Address as _, token::StellarAssetClient, Address, BytesN, Env, String, Vec,
+    testutils::{Address as _, Events as _},
+    token::StellarAssetClient,
+    vec, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
 
 /// Set up the full environment: IssuerRegistry + ReputationRegistry + Marketplace + token
@@ -182,6 +184,42 @@ fn test_order_lifecycle_and_seller_payout() {
     // Seller receives 97.5% (250 bps fee)
     let seller_balance_after = token_client.balance(&t.provider);
     assert_eq!(seller_balance_after - seller_balance_before, 975);
+}
+
+#[test]
+fn test_complete_order_emits_event() {
+    let t = TestEnv::new();
+    let listing_id = t.create_listing(1000);
+    let order_id = t.market_client.purchase_service(
+        &t.buyer,
+        &listing_id,
+        &BytesN::from_array(&t.env, &[9u8; 32]),
+    );
+
+    t.market_client.start_order(&t.provider, &order_id);
+    let completed_at = t.env.ledger().timestamp();
+    t.market_client.complete_order(
+        &t.provider,
+        &order_id,
+        &BytesN::from_array(&t.env, &[0u8; 32]),
+    );
+
+    // events().all() only returns events from the most recent contract
+    // invocation, so this must run right after complete_order and before
+    // any other client call. Filter to the marketplace contract since
+    // release_to_seller's token transfers also emit events here.
+    assert_eq!(
+        t.env.events().all().filter_by_contract(&t.market_client.address),
+        vec![
+            &t.env,
+            (
+                t.market_client.address.clone(),
+                (Symbol::new(&t.env, "order"), Symbol::new(&t.env, "complete")).into_val(&t.env),
+                (order_id, t.provider.clone(), t.buyer.clone(), 1000i128, completed_at)
+                    .into_val(&t.env),
+            ),
+        ]
+    );
 }
 
 #[test]
