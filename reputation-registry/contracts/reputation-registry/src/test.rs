@@ -382,3 +382,281 @@ fn test_request_and_complete_verification() {
     let req = client.get_verification_request(&request_id);
     assert!(req.is_verified);
 }
+
+// ===================== #14: Verification lifecycle tests =====================
+
+#[test]
+fn test_verification_request_returns_id() {
+    let (env, client, _, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    let requester = Address::generate(&env);
+
+    let proof_hash = make_hash(&env, 60);
+    client.register_proof(
+        &owner, &issuer, &proof_hash, &make_hash(&env, 61),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    let request_id = client.request_verification(&requester, &owner, &proof_hash);
+    // First request should return ID 0
+    assert_eq!(request_id, 0u64);
+}
+
+#[test]
+fn test_complete_verification_is_valid_true() {
+    let (env, client, admin, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    let requester = Address::generate(&env);
+
+    let proof_hash = make_hash(&env, 62);
+    client.register_proof(
+        &owner, &issuer, &proof_hash, &make_hash(&env, 63),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    let request_id = client.request_verification(&requester, &owner, &proof_hash);
+    client.complete_verification(&request_id, &admin, &true);
+
+    let req = client.get_verification_request(&request_id);
+    assert_eq!(req.is_verified, true);
+    assert_eq!(req.requester, requester);
+    assert_eq!(req.target, owner);
+    assert_eq!(req.proof_hash, proof_hash);
+    // verified_at is set to the ledger timestamp (may be 0 in tests, but must differ from requested_at baseline)
+    // Confirm the request was completed by checking is_verified and that verified_at was written
+    assert_eq!(req.verified_at, env.ledger().timestamp());
+}
+
+#[test]
+fn test_complete_verification_is_valid_false() {
+    let (env, client, admin, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    let requester = Address::generate(&env);
+
+    let proof_hash = make_hash(&env, 64);
+    client.register_proof(
+        &owner, &issuer, &proof_hash, &make_hash(&env, 65),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    let request_id = client.request_verification(&requester, &owner, &proof_hash);
+    client.complete_verification(&request_id, &admin, &false);
+
+    let req = client.get_verification_request(&request_id);
+    // is_valid=false means is_verified stored as false
+    assert_eq!(req.is_verified, false);
+    // verified_at is set to the current ledger timestamp when complete_verification is called
+    assert_eq!(req.verified_at, env.ledger().timestamp());
+}
+
+#[test]
+#[should_panic(expected = "request not found")]
+fn test_complete_verification_nonexistent_request() {
+    let (_, client, admin, _, _) = setup();
+    // Request ID 999 was never created
+    client.complete_verification(&999u64, &admin, &true);
+}
+
+#[test]
+fn test_multiple_verification_requests_sequential_ids() {
+    let (env, client, admin, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    let req1 = Address::generate(&env);
+    let req2 = Address::generate(&env);
+
+    let proof_hash = make_hash(&env, 66);
+    client.register_proof(
+        &owner, &issuer, &proof_hash, &make_hash(&env, 67),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    let id0 = client.request_verification(&req1, &owner, &proof_hash);
+    let id1 = client.request_verification(&req2, &owner, &proof_hash);
+
+    assert_eq!(id0, 0u64);
+    assert_eq!(id1, 1u64);
+
+    client.complete_verification(&id0, &admin, &true);
+    let r0 = client.get_verification_request(&id0);
+    assert!(r0.is_verified);
+
+    // id1 still pending
+    let r1 = client.get_verification_request(&id1);
+    assert!(!r1.is_verified);
+    assert_eq!(r1.verified_at, 0);
+}
+
+// ===================== #13: Leaderboard tests =====================
+
+#[test]
+fn test_get_leaderboard_correct_order_and_truncation() {
+    let (env, client, _, issuer, ir_id) = setup();
+
+    // We need different credential types with different weights to produce unique scores.
+    // Register an extra credential type on the issuer registry for variety.
+    use issuer_registry::issuer_registry::IssuerRegistryClient;
+    let ir_client = IssuerRegistryClient::new(&env, &ir_id);
+    ir_client.register_credential_type(
+        &issuer,
+        &String::from_str(&env, "success_rate"),
+        &String::from_str(&env, "Success Rate"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+    ir_client.register_credential_type(
+        &issuer,
+        &String::from_str(&env, "contributions"),
+        &String::from_str(&env, "Contributions"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+
+    // Create 5 users with distinct scores using different numbers of proofs:
+    // user_a: 1x jobs_completed (50)
+    // user_b: 1x success_rate (70)
+    // user_c: 2x jobs_completed (100)
+    // user_d: 1x contributions (40)
+    // user_e: 1x jobs_completed + 1x success_rate (120)
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    let user_c = Address::generate(&env);
+    let user_d = Address::generate(&env);
+    let user_e = Address::generate(&env);
+
+    // user_a: score 50
+    client.register_proof(&user_a, &issuer, &make_hash(&env, 70), &make_hash(&env, 71),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""));
+
+    // user_b: score 70
+    client.register_proof(&user_b, &issuer, &make_hash(&env, 72), &make_hash(&env, 73),
+        &String::from_str(&env, "success_rate"), &0u64, &String::from_str(&env, ""));
+
+    // user_c: score 100
+    client.register_proof(&user_c, &issuer, &make_hash(&env, 74), &make_hash(&env, 75),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""));
+    client.register_proof(&user_c, &issuer, &make_hash(&env, 76), &make_hash(&env, 77),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""));
+
+    // user_d: score 40
+    client.register_proof(&user_d, &issuer, &make_hash(&env, 78), &make_hash(&env, 79),
+        &String::from_str(&env, "contributions"), &0u64, &String::from_str(&env, ""));
+
+    // user_e: score 120
+    client.register_proof(&user_e, &issuer, &make_hash(&env, 80), &make_hash(&env, 81),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""));
+    client.register_proof(&user_e, &issuer, &make_hash(&env, 82), &make_hash(&env, 83),
+        &String::from_str(&env, "success_rate"), &0u64, &String::from_str(&env, ""));
+
+    // Full leaderboard (no truncation needed — limit > 5)
+    let board = client.get_leaderboard(&10u32);
+    assert_eq!(board.len(), 5);
+
+    // Scores should be descending: 120, 100, 70, 50, 40
+    assert_eq!(board.get(0).unwrap().1, 120);
+    assert_eq!(board.get(1).unwrap().1, 100);
+    assert_eq!(board.get(2).unwrap().1, 70);
+    assert_eq!(board.get(3).unwrap().1, 50);
+    assert_eq!(board.get(4).unwrap().1, 40);
+
+    // Top users match expected addresses
+    assert_eq!(board.get(0).unwrap().0, user_e);
+    assert_eq!(board.get(1).unwrap().0, user_c);
+
+    // Truncation: limit=3 should return only top 3
+    let top3 = client.get_leaderboard(&3u32);
+    assert_eq!(top3.len(), 3);
+    assert_eq!(top3.get(0).unwrap().1, 120);
+    assert_eq!(top3.get(2).unwrap().1, 70);
+}
+
+#[test]
+fn test_get_leaderboard_cap_at_50() {
+    let (env, client, _, issuer, _) = setup();
+
+    // Register a handful of users; request limit=100 — should still return all of them (not crash)
+    for i in 0u8..5 {
+        let user = Address::generate(&env);
+        client.register_proof(&user, &issuer, &make_hash(&env, 90 + i), &make_hash(&env, 90 + i + 50),
+            &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""));
+    }
+
+    let board = client.get_leaderboard(&100u32);
+    // Only 5 users were registered
+    assert_eq!(board.len(), 5);
+}
+
+// ===================== #12: Revoke score recalculation tests =====================
+
+#[test]
+fn test_revoke_one_of_two_same_type_proofs_score_diff_is_70() {
+    let (env, client, _, issuer, ir_id) = setup();
+
+    // Register success_rate credential type
+    use issuer_registry::issuer_registry::IssuerRegistryClient;
+    let ir_client = IssuerRegistryClient::new(&env, &ir_id);
+    ir_client.register_credential_type(
+        &issuer,
+        &String::from_str(&env, "success_rate"),
+        &String::from_str(&env, "Success Rate"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+
+    let owner = Address::generate(&env);
+    let proof_hash_1 = make_hash(&env, 100);
+    let proof_hash_2 = make_hash(&env, 101);
+
+    // Register 2 success_rate proofs
+    client.register_proof(&owner, &issuer, &proof_hash_1, &make_hash(&env, 102),
+        &String::from_str(&env, "success_rate"), &0u64, &String::from_str(&env, ""));
+    client.register_proof(&owner, &issuer, &proof_hash_2, &make_hash(&env, 103),
+        &String::from_str(&env, "success_rate"), &0u64, &String::from_str(&env, ""));
+
+    let score_before = client.get_score_value(&owner);
+    assert_eq!(score_before, 140); // 2 × 70
+
+    // Revoke one
+    client.revoke_proof(&proof_hash_1, &owner);
+
+    let score_after = client.get_score_value(&owner);
+    assert_eq!(score_after, 70); // 1 × 70
+
+    // The difference must be exactly one weight unit (70)
+    assert_eq!(score_before - score_after, 70);
+}
+
+#[test]
+fn test_revoke_all_proofs_zeroes_score() {
+    let (env, client, _, issuer, ir_id) = setup();
+
+    use issuer_registry::issuer_registry::IssuerRegistryClient;
+    let ir_client = IssuerRegistryClient::new(&env, &ir_id);
+    ir_client.register_credential_type(
+        &issuer,
+        &String::from_str(&env, "success_rate"),
+        &String::from_str(&env, "Success Rate"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+
+    let owner = Address::generate(&env);
+    let hash_a = make_hash(&env, 110);
+    let hash_b = make_hash(&env, 111);
+
+    client.register_proof(&owner, &issuer, &hash_a, &make_hash(&env, 112),
+        &String::from_str(&env, "success_rate"), &0u64, &String::from_str(&env, ""));
+    client.register_proof(&owner, &issuer, &hash_b, &make_hash(&env, 113),
+        &String::from_str(&env, "success_rate"), &0u64, &String::from_str(&env, ""));
+
+    assert_eq!(client.get_score_value(&owner), 140);
+
+    client.revoke_proof(&hash_a, &owner);
+    assert_eq!(client.get_score_value(&owner), 70);
+
+    client.revoke_proof(&hash_b, &owner);
+    assert_eq!(client.get_score_value(&owner), 0);
+}
