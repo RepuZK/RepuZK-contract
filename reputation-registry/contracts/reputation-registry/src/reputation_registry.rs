@@ -264,6 +264,62 @@ impl ReputationRegistry {
         true
     }
     
+    /// Expire stale proofs for a user.
+    ///
+    /// Iterates every proof belonging to `user`, and for each proof that is
+    /// currently marked `is_active = true` but whose `expires_at` timestamp
+    /// is in the past (and non-zero), sets `is_active = false` and emits a
+    /// `("proof", "expire")` event.  After processing all proofs the
+    /// reputation score is recalculated once.
+    ///
+    /// Callable by anyone — no authorization required.
+    ///
+    /// Returns the number of proofs that were expired.
+    pub fn expire_proofs(env: Env, user: Address) -> u32 {
+        let now = env.ledger().timestamp();
+
+        let proof_hashes: Vec<BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&DataKey::UserProofs(user.clone()))
+            .unwrap_or(Vec::new(&env));
+
+        let mut expired_count: u32 = 0;
+
+        for i in 0..proof_hashes.len() {
+            let hash = proof_hashes.get(i).unwrap();
+
+            let mut proof: ReputationProof = match env
+                .storage()
+                .instance()
+                .get(&DataKey::ProofData(hash.clone()))
+            {
+                Some(p) => p,
+                None => continue,
+            };
+
+            // Only act on proofs that are still active, have an expiry set,
+            // and whose expiry has passed.
+            if proof.is_active && proof.expires_at > 0 && proof.expires_at <= now {
+                proof.is_active = false;
+                env.storage()
+                    .instance()
+                    .set(&DataKey::ProofData(hash.clone()), &proof);
+
+                let topics = (Symbol::new(&env, "proof"), Symbol::new(&env, "expire"));
+                let data = (user.clone(), hash, proof.expires_at);
+                env.events().publish(topics, data);
+
+                expired_count += 1;
+            }
+        }
+
+        // Recalculate score once (even if nothing changed, keeps state consistent).
+        Self::update_reputation_score(&env, user);
+
+        expired_count
+    }
+
     /// Get proof by hash
     pub fn get_proof(env: Env, proof_hash: BytesN<32>) -> ReputationProof {
         env.storage()
