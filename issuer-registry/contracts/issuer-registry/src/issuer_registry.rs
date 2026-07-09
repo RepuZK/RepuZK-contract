@@ -35,6 +35,17 @@ pub struct IssuerRegistry;
 
 #[contractimpl]
 impl IssuerRegistry {
+    /// Initialize the contract and set the administrator.
+    ///
+    /// Must be called exactly once after deployment.  The `admin` address
+    /// authorizes the call.
+    ///
+    /// # Panics
+    /// Panics with `"already initialized"` if the contract has already been
+    /// initialized.
+    ///
+    /// # Auth
+    /// Requires authorization from `admin`.
     pub fn initialize(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
@@ -45,6 +56,21 @@ impl IssuerRegistry {
         env.storage().instance().set(&DataKey::IssuerCount, &0u32);
     }
 
+    /// Register a new trusted issuer.
+    ///
+    /// Stores an `Issuer` record with `is_active = true` and the current
+    /// ledger timestamp for both `registered_at` and `updated_at`.  The
+    /// issuer's address is also appended to the global `AllIssuers` list and
+    /// the issuer counter is incremented.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// Panics with `"issuer already exists"` if `issuer_address` is already
+    /// registered.
+    ///
+    /// # Auth
+    /// Requires authorization from the contract admin.
     pub fn add_issuer(
         env: Env,
         issuer_address: Address,
@@ -98,6 +124,19 @@ impl IssuerRegistry {
         true
     }
 
+    /// Remove an issuer from the registry entirely.
+    ///
+    /// Deletes the issuer's storage entry, removes the address from the
+    /// `AllIssuers` list, and decrements the issuer counter.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// Panics with `"issuer does not exist"` if `issuer_address` is not
+    /// registered.
+    ///
+    /// # Auth
+    /// Requires authorization from the contract admin.
     pub fn remove_issuer(env: Env, issuer_address: Address) -> bool {
         let admin = Self::get_admin(&env);
         admin.require_auth();
@@ -146,6 +185,13 @@ impl IssuerRegistry {
         true
     }
 
+    /// Return `true` if `address` is a registered *and active* issuer.
+    ///
+    /// Returns `false` when the address is unknown or when the issuer has
+    /// been deactivated via `update_issuer_status`.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn is_issuer(env: Env, address: Address) -> bool {
         let key = DataKey::Issuer(address);
         match env.storage().instance().get::<DataKey, Issuer>(&key) {
@@ -154,6 +200,13 @@ impl IssuerRegistry {
         }
     }
 
+    /// Retrieve the full `Issuer` record for `address`.
+    ///
+    /// # Panics
+    /// Panics with `"issuer not found"` if the address is not registered.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_issuer(env: Env, address: Address) -> Issuer {
         env.storage()
             .instance()
@@ -161,6 +214,19 @@ impl IssuerRegistry {
             .expect("issuer not found")
     }
 
+    /// Activate or deactivate an issuer without removing it.
+    ///
+    /// Sets `is_active` to `is_active` and updates `updated_at` to the
+    /// current ledger timestamp.  Deactivated issuers are rejected by the
+    /// Reputation Registry when new proofs are submitted.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// Panics with `"issuer not found"` if the address is not registered.
+    ///
+    /// # Auth
+    /// Requires authorization from the contract admin.
     pub fn update_issuer_status(env: Env, issuer_address: Address, is_active: bool) -> bool {
         let admin = Self::get_admin(&env);
         admin.require_auth();
@@ -181,6 +247,21 @@ impl IssuerRegistry {
         true
     }
 
+    /// Register a credential schema for an issuer.
+    ///
+    /// Appends a new `CredentialType` to the issuer's credential list.
+    /// The `schema` field is a JSON-schema string that downstream clients
+    /// can use to validate credential payloads.  Set `requires_zk = true`
+    /// to signal that proofs of this type must be accompanied by a ZK proof.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// Panics with `"issuer is not active"` if the issuer exists but has been
+    /// deactivated.
+    ///
+    /// # Auth
+    /// Requires authorization from `issuer_address`.
     pub fn register_credential_type(
         env: Env,
         issuer_address: Address,
@@ -221,6 +302,13 @@ impl IssuerRegistry {
         true
     }
 
+    /// Return the list of credential types registered by `issuer_address`.
+    ///
+    /// Returns an empty `Vec` when the issuer has not registered any
+    /// credential types yet.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_issuer_credential_types(env: Env, issuer_address: Address) -> Vec<CredentialType> {
         env.storage()
             .instance()
@@ -228,6 +316,10 @@ impl IssuerRegistry {
             .unwrap_or(Vec::new(&env))
     }
 
+    /// Return all registered issuers, both active and inactive.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_all_issuers(env: Env) -> Vec<Issuer> {
         let issuer_addresses: Vec<Address> = env
             .storage()
@@ -247,6 +339,10 @@ impl IssuerRegistry {
         issuers
     }
 
+    /// Return only the issuers whose `is_active` flag is `true`.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_active_issuers(env: Env) -> Vec<Issuer> {
         let all_issuers = Self::get_all_issuers(env.clone());
         let mut active_issuers = Vec::new(&env);
@@ -261,6 +357,10 @@ impl IssuerRegistry {
         active_issuers
     }
 
+    /// Return the total number of registered issuers (active + inactive).
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_issuer_count(env: Env) -> u32 {
         env.storage()
             .instance()
@@ -268,6 +368,11 @@ impl IssuerRegistry {
             .unwrap_or(0)
     }
 
+    /// Return `true` if `issuer_address` has registered a credential type
+    /// with the given `credential_id`.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn verify_credential_type(
         env: Env,
         issuer_address: Address,
@@ -285,6 +390,15 @@ impl IssuerRegistry {
         false
     }
 
+    /// Transfer the admin role to a new address.
+    ///
+    /// After this call the previous admin loses all privileged access and only
+    /// `new_admin` can perform admin-gated operations.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Auth
+    /// Requires authorization from the current admin.
     pub fn transfer_admin(env: Env, new_admin: Address) -> bool {
         let current_admin = Self::get_admin(&env);
         current_admin.require_auth();
@@ -300,6 +414,21 @@ impl IssuerRegistry {
             .expect("admin not set")
     }
 
+    /// Record the issuance of a credential to a user.
+    ///
+    /// Stores a mapping `(issuer_address, user_address, credential_id) →
+    /// credential_data_hash` in persistent storage.  If `expires_at > 0` the
+    /// entry's TTL is extended to `expires_at` ledger sequences.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"issuer is not active"` — issuer has been deactivated.
+    /// - `"credential type not registered"` — the credential type has not
+    ///   been registered by this issuer via `register_credential_type`.
+    ///
+    /// # Auth
+    /// Requires authorization from `issuer_address`.
     pub fn issue_credential(
         env: Env,
         issuer_address: Address,
