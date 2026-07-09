@@ -110,6 +110,8 @@ pub enum DataKey {
     TotalProofs,
     // Proof verification count
     VerificationCount,
+    // All registered users (for leaderboard)
+    AllUsers,
 }
 
 // ==================== Main Contract ====================
@@ -183,6 +185,17 @@ impl ReputationRegistry {
             .get(&DataKey::UserProofs(owner.clone()))
             .unwrap_or(Vec::new(&env));
         
+        // Track new users for leaderboard (only add if this is their first proof)
+        if user_proofs.is_empty() {
+            let mut all_users: Vec<Address> = env
+                .storage()
+                .instance()
+                .get(&DataKey::AllUsers)
+                .unwrap_or(Vec::new(&env));
+            all_users.push_back(owner.clone());
+            env.storage().instance().set(&DataKey::AllUsers, &all_users);
+        }
+
         user_proofs.push_back(proof_hash.clone());
         env.storage().instance().set(&DataKey::UserProofs(owner.clone()), &user_proofs);
         
@@ -675,10 +688,60 @@ impl ReputationRegistry {
         env.storage().instance().get(&DataKey::VerificationCount).unwrap_or(0)
     }
     
+    /// Get top users by reputation score, sorted descending.
+    /// Returns at most `limit` users (capped at 50).
+    pub fn get_leaderboard(env: Env, limit: u32) -> Vec<(Address, u32)> {
+        let cap = if limit > 50 { 50 } else { limit };
+
+        let all_users: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::AllUsers)
+            .unwrap_or(Vec::new(&env));
+
+        // Collect (address, score) pairs
+        let mut pairs: Vec<(Address, u32)> = Vec::new(&env);
+        for i in 0..all_users.len() {
+            let user = all_users.get(i).unwrap();
+            let score = env
+                .storage()
+                .instance()
+                .get::<DataKey, ReputationScore>(&DataKey::UserScore(user.clone()))
+                .map(|s| s.score)
+                .unwrap_or(0);
+            pairs.push_back((user, score));
+        }
+
+        // Insertion sort descending by score (leaderboard lists are small)
+        let len = pairs.len() as usize;
+        for i in 1..len {
+            let mut j = i;
+            while j > 0 {
+                let prev = pairs.get((j - 1) as u32).unwrap();
+                let curr = pairs.get(j as u32).unwrap();
+                if prev.1 < curr.1 {
+                    pairs.set((j - 1) as u32, curr.clone());
+                    pairs.set(j as u32, prev);
+                    j -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Truncate to cap
+        let mut result: Vec<(Address, u32)> = Vec::new(&env);
+        let take = if (cap as usize) < len { cap as usize } else { len };
+        for i in 0..take {
+            result.push_back(pairs.get(i as u32).unwrap());
+        }
+
+        result
+    }
+
     /// Get top users by reputation score (requires external indexing)
+    /// Deprecated: use get_leaderboard instead.
     pub fn get_top_users(_env: Env, _limit: u32) -> Vec<(Address, u32)> {
-        // Note: This would require external indexing for efficiency
-        // Returns empty for now - implement with events and off-chain indexing
         Vec::new(&_env)
     }
     
