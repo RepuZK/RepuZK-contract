@@ -1,4 +1,4 @@
-use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, BytesN, Env, String, Symbol, Vec};
 
 #[contracttype]
 #[derive(Clone)]
@@ -120,6 +120,11 @@ impl IssuerRegistry {
         env.storage()
             .instance()
             .set(&DataKey::IssuerCount, &(count + 1));
+
+        // Emit ("issuer", "add") event so off-chain indexers can track new issuers.
+        let topics = (Symbol::new(&env, "issuer"), Symbol::new(&env, "add"));
+        let ts = now;
+        env.events().publish(topics, (issuer_address, issuer.name, ts));
 
         true
     }

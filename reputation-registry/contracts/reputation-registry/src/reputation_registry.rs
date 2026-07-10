@@ -123,6 +123,18 @@ pub struct ReputationRegistry;
 impl ReputationRegistry {
     // ============ Initialization ============
     
+    /// Initialize the contract and set the administrator and issuer registry.
+    ///
+    /// Must be called exactly once after deployment.  Sets up the admin
+    /// address, the linked `issuer_registry` contract address, and zeroes all
+    /// counters (`NextRequestId`, `TotalProofs`, `VerificationCount`).
+    ///
+    /// # Panics
+    /// Panics with `"already initialized"` if the contract has already been
+    /// initialized.
+    ///
+    /// # Auth
+    /// Requires authorization from `admin`.
     pub fn initialize(env: Env, admin: Address, issuer_registry: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
@@ -214,7 +226,19 @@ impl ReputationRegistry {
         true
     }
     
-    /// Update an existing proof
+    /// Update the credential hash, expiry, and metadata URI of an existing proof.
+    ///
+    /// Only the proof owner may update it.  After the update the user's
+    /// reputation score is recalculated automatically.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"proof not found"` — no proof exists for `proof_hash`.
+    /// - `"not proof owner"` — `owner` does not match the proof's recorded owner.
+    ///
+    /// # Auth
+    /// Requires authorization from `owner`.
     pub fn update_proof(
         env: Env,
         owner: Address,
@@ -249,7 +273,20 @@ impl ReputationRegistry {
         true
     }
     
-    /// Revoke a proof (issuer or owner can revoke)
+    /// Invalidate a proof so it no longer contributes to the owner's score.
+    ///
+    /// The proof record is kept in storage but `is_active` is set to `false`.
+    /// The owner's reputation score is recalculated after revocation.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"proof not found"` — no proof exists for `proof_hash`.
+    /// - `"not authorized to revoke"` — `revoker` is neither the proof owner,
+    ///   the issuer, nor the contract admin.
+    ///
+    /// # Auth
+    /// Requires authorization from `revoker`.
     pub fn revoke_proof(env: Env, proof_hash: BytesN<32>, revoker: Address) -> bool {
         revoker.require_auth();
         
@@ -333,7 +370,14 @@ impl ReputationRegistry {
         expired_count
     }
 
-    /// Get proof by hash
+    /// Retrieve the full `ReputationProof` record for `proof_hash`.
+    ///
+    /// # Panics
+    /// Panics with `"proof not found"` if no proof is registered for the
+    /// given hash.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_proof(env: Env, proof_hash: BytesN<32>) -> ReputationProof {
         env.storage()
             .instance()
@@ -341,7 +385,10 @@ impl ReputationRegistry {
             .expect("proof not found")
     }
     
-    /// Get all proofs for a user
+    /// Return all proofs registered by `user`, including inactive and expired ones.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_user_proofs(env: Env, user: Address) -> Vec<ReputationProof> {
         let proof_hashes: Vec<BytesN<32>> = env
             .storage()
@@ -361,7 +408,13 @@ impl ReputationRegistry {
         proofs
     }
     
-    /// Get active proofs for a user (not expired and active)
+    /// Return only the proofs for `user` that are active and not yet expired.
+    ///
+    /// A proof is considered active when `is_active == true` and either
+    /// `expires_at == 0` (never expires) or `expires_at > current_timestamp`.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_active_user_proofs(env: Env, user: Address) -> Vec<ReputationProof> {
         let all_proofs = Self::get_user_proofs(env.clone(), user);
         let now = env.ledger().timestamp();
@@ -436,7 +489,11 @@ impl ReputationRegistry {
         env.events().publish(topics, data);
     }
     
-    /// Check if a user has an active proof of the given credential type
+    /// Return `true` if `user` has at least one active, non-expired proof of
+    /// the given `credential_type`.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn has_credential(env: Env, user: Address, credential_type: String) -> bool {
         let active = Self::get_active_user_proofs(env, user);
         for i in 0..active.len() {
@@ -477,7 +534,18 @@ impl ReputationRegistry {
     
     // ============ Verification System ============
     
-    /// Request verification of a proof
+    /// Open a verification request for a proof belonging to `target`.
+    ///
+    /// The `requester` asks a third party to confirm the validity of
+    /// `proof_hash`.  A new `VerificationRequest` record is created and a
+    /// monotonically-increasing request ID is returned.
+    ///
+    /// # Panics
+    /// - `"proof not found"` — no proof registered for `proof_hash`.
+    /// - `"proof does not belong to target"` — the proof owner ≠ `target`.
+    ///
+    /// # Auth
+    /// Requires authorization from `requester`.
     pub fn request_verification(
         env: Env,
         requester: Address,
@@ -515,7 +583,19 @@ impl ReputationRegistry {
         request_id
     }
     
-    /// Complete verification (by verifier or admin)
+    /// Close a verification request and record the outcome.
+    ///
+    /// Sets `is_verified` to `is_valid` and records `verified_at` as the
+    /// current ledger timestamp.  Increments the global verification counter.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"request not found"` — no request exists for `request_id`.
+    /// - `"already verified"` — the request has already been resolved.
+    ///
+    /// # Auth
+    /// Requires authorization from `verifier`.
     pub fn complete_verification(
         env: Env,
         request_id: u64,
@@ -550,7 +630,14 @@ impl ReputationRegistry {
         true
     }
     
-    /// Get verification request details
+    /// Retrieve the full `VerificationRequest` record for `request_id`.
+    ///
+    /// # Panics
+    /// Panics with `"request not found"` if no request exists for the
+    /// given ID.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_verification_request(env: Env, request_id: u64) -> VerificationRequest {
         env.storage()
             .instance()
@@ -560,7 +647,17 @@ impl ReputationRegistry {
     
     // ============ Badge System ============
     
-    /// Create a new reputation badge (admin only)
+    /// Define a new reputation badge (admin only).
+    ///
+    /// Creates a `ReputationBadge` with `is_active = true` and appends its
+    /// `badge_id` to the global badge list.  Users earn the badge when they
+    /// pass `check_and_award_badges` and satisfy both the `score_threshold`
+    /// and every credential type in `required_credentials`.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Auth
+    /// Requires authorization from the contract admin.
     pub fn create_badge(
         env: Env,
         badge_id: String,
@@ -596,7 +693,18 @@ impl ReputationRegistry {
         true
     }
     
-    /// Check and award badges to a user
+    /// Evaluate all active badges and award any that `user` qualifies for.
+    ///
+    /// For each badge the function checks that the user's current score meets
+    /// `score_threshold` and that they have an active proof for every entry in
+    /// `required_credentials`.  Badges already held by the user are skipped.
+    /// A `("badge", "get")` event is emitted for every newly awarded badge.
+    ///
+    /// Returns a `Vec<String>` of the badge IDs that were awarded in this
+    /// invocation (empty if nothing new was earned).
+    ///
+    /// # Auth
+    /// Requires authorization from `user`.
     pub fn check_and_award_badges(env: Env, user: Address) -> Vec<String> {
         user.require_auth();
         
@@ -692,7 +800,10 @@ impl ReputationRegistry {
         earned_badges
     }
     
-    /// Get user's badges
+    /// Return all `ReputationBadge` records that `user` has earned.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_user_badges(env: Env, user: Address) -> Vec<ReputationBadge> {
         let badge_ids: Vec<String> = env
             .storage()
@@ -712,7 +823,10 @@ impl ReputationRegistry {
         badges
     }
     
-    /// Get all available badges
+    /// Return all `ReputationBadge` records defined in the contract (active and inactive).
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_all_badges(env: Env) -> Vec<ReputationBadge> {
         let badge_ids: Vec<String> = env
             .storage()
@@ -734,18 +848,32 @@ impl ReputationRegistry {
     
     // ============ Query Functions ============
     
-    /// Get total number of registered proofs
+    /// Return the total number of proofs ever registered (including revoked ones).
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_total_proofs(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::TotalProofs).unwrap_or(0)
     }
     
-    /// Get total verification count
+    /// Return the total number of verification requests that have been completed.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_verification_count(env: Env) -> u32 {
         env.storage().instance().get(&DataKey::VerificationCount).unwrap_or(0)
     }
     
-    /// Get top users by reputation score, sorted descending.
-    /// Returns at most `limit` users (capped at 50).
+    /// Return the top users by reputation score, sorted descending.
+    ///
+    /// Collects all known users, sorts them by their current score in
+    /// descending order using insertion sort (leaderboards are small), then
+    /// returns the first `limit` entries.  `limit` is capped at 50.
+    ///
+    /// Each entry is a `(Address, u32)` pair of (user, score).
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_leaderboard(env: Env, limit: u32) -> Vec<(Address, u32)> {
         let cap = if limit > 50 { 50 } else { limit };
 
@@ -795,15 +923,28 @@ impl ReputationRegistry {
         result
     }
 
-    /// Get top users by reputation score (requires external indexing)
-    /// Deprecated: use get_leaderboard instead.
+    /// **Deprecated** — always returns an empty vec.
+    ///
+    /// Use `get_leaderboard` instead, which performs an on-chain sort without
+    /// requiring external indexing.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_top_users(_env: Env, _limit: u32) -> Vec<(Address, u32)> {
         Vec::new(&_env)
     }
     
     // ============ Admin Functions ============
     
-    /// Update issuer registry address
+    /// Update the address of the linked Issuer Registry contract.
+    ///
+    /// All subsequent `register_proof` calls will validate issuers against
+    /// the new registry address.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Auth
+    /// Requires authorization from the contract admin.
     pub fn update_issuer_registry(env: Env, new_registry: Address) -> bool {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
@@ -812,7 +953,15 @@ impl ReputationRegistry {
         true
     }
     
-    /// Transfer admin role
+    /// Transfer the admin role to `new_admin`.
+    ///
+    /// After this call only `new_admin` can perform admin-gated operations
+    /// such as creating badges and updating the issuer registry address.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Auth
+    /// Requires authorization from the current admin.
     pub fn transfer_admin(env: Env, new_admin: Address) -> bool {
         let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         current_admin.require_auth();
@@ -821,7 +970,14 @@ impl ReputationRegistry {
         true
     }
     
-    /// Batch revoke proofs from a specific issuer
+    /// Batch-revoke all proofs issued by `_issuer`.
+    ///
+    /// **Not yet implemented** — returns `0`.  Full implementation requires a
+    /// secondary index mapping each issuer to its issued proof hashes, which
+    /// is not yet maintained by this contract.
+    ///
+    /// # Auth
+    /// No authorization required currently (stub).
     pub fn revoke_issuer_proofs(_env: Env, _issuer: Address) -> u32 {
         // This would require indexing all proofs by issuer
         // For now, returns 0 - implement with proper indexing
