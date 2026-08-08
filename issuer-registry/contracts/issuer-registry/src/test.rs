@@ -2,8 +2,8 @@
 
 use super::issuer_registry::*;
 use soroban_sdk::{
-    testutils::{storage::Persistent as _, Address as _, Ledger as _},
-    Address, Env, String,
+    testutils::{storage::Persistent as _, Address as _, Events as _, Ledger as _},
+    vec, Address, Env, IntoVal, String, Symbol,
 };
 
 fn setup() -> (Env, IssuerRegistryClient<'static>, Address) {
@@ -326,4 +326,31 @@ fn test_transfer_admin() {
         &String::from_str(&env, "X"),
         &String::from_str(&env, "Y"),
     );
+}
+
+#[test]
+fn test_add_issuer_emits_event() {
+    let (env, client, _) = setup();
+    let issuer = Address::generate(&env);
+    let name = String::from_str(&env, "Upwork");
+
+    client.add_issuer(
+        &issuer,
+        &name,
+        &String::from_str(&env, "Freelance platform"),
+    );
+
+    // The sandbox records all events; find the one with topics ("issuer", "add").
+    let events = env.events().all();
+    let found = events.iter().any(|(contract_id, topics, _data)| {
+        let _ = contract_id;
+        topics
+            == vec![
+                &env,
+                Symbol::new(&env, "issuer").into_val(&env),
+                Symbol::new(&env, "add").into_val(&env),
+            ]
+    });
+
+    assert!(found, "expected (\"issuer\", \"add\") event to be emitted");
 }
