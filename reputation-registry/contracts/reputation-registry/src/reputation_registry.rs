@@ -114,6 +114,29 @@ pub enum DataKey {
     AllUsers,
 }
 
+// ==================== Score Weights ====================
+//
+// Per-credential-type weights used by `update_reputation_score` to turn a
+// user's active proofs into a raw score, and the cap applied to the total.
+
+/// Weight contributed by a "success_rate" proof.
+const WEIGHT_SUCCESS_RATE: u32 = 70;
+/// Weight contributed by a "jobs_completed" proof.
+const WEIGHT_JOBS_COMPLETED: u32 = 50;
+/// Weight contributed by a "verified_human" proof.
+const WEIGHT_VERIFIED_HUMAN: u32 = 50;
+/// Weight contributed by a "proposals" proof.
+const WEIGHT_PROPOSALS: u32 = 45;
+/// Weight contributed by a "contributions" proof.
+const WEIGHT_CONTRIBUTIONS: u32 = 40;
+/// Weight contributed by a "course_completed" proof.
+const WEIGHT_COURSE_COMPLETED: u32 = 30;
+/// Weight contributed by any credential type not listed above.
+const WEIGHT_DEFAULT: u32 = 20;
+/// Maximum total reputation score; the raw sum of proof weights is capped
+/// at this value.
+const MAX_SCORE: u32 = 1000;
+
 // ==================== Main Contract ====================
 
 #[contract]
@@ -446,19 +469,19 @@ impl ReputationRegistry {
             // Base score depends on credential type
             let ct = &proof.credential_type;
             let base_score = if *ct == String::from_str(env, "jobs_completed") {
-                50
+                WEIGHT_JOBS_COMPLETED
             } else if *ct == String::from_str(env, "success_rate") {
-                70
+                WEIGHT_SUCCESS_RATE
             } else if *ct == String::from_str(env, "contributions") {
-                40
+                WEIGHT_CONTRIBUTIONS
             } else if *ct == String::from_str(env, "proposals") {
-                45
+                WEIGHT_PROPOSALS
             } else if *ct == String::from_str(env, "course_completed") {
-                30
+                WEIGHT_COURSE_COMPLETED
             } else if *ct == String::from_str(env, "verified_human") {
-                50
+                WEIGHT_VERIFIED_HUMAN
             } else {
-                20
+                WEIGHT_DEFAULT
             };
             
             total_score += base_score;
@@ -469,9 +492,9 @@ impl ReputationRegistry {
             components.set(component_key, current + base_score);
         }
         
-        // Cap score at 1000
-        if total_score > 1000 {
-            total_score = 1000;
+        // Cap score at MAX_SCORE
+        if total_score > MAX_SCORE {
+            total_score = MAX_SCORE;
         }
         
         let reputation_score = ReputationScore {

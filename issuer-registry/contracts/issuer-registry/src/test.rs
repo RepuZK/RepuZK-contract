@@ -340,17 +340,97 @@ fn test_add_issuer_emits_event() {
         &String::from_str(&env, "Freelance platform"),
     );
 
-    // The sandbox records all events; find the one with topics ("issuer", "add").
-    let events = env.events().all();
-    let found = events.iter().any(|(contract_id, topics, _data)| {
-        let _ = contract_id;
-        topics
-            == vec![
-                &env,
-                Symbol::new(&env, "issuer").into_val(&env),
-                Symbol::new(&env, "add").into_val(&env),
-            ]
-    });
+    let ts = env.ledger().timestamp();
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (Symbol::new(&env, "issuer"), Symbol::new(&env, "add")).into_val(&env),
+                (issuer.clone(), name.clone(), ts).into_val(&env),
+            ),
+        ]
+    );
+}
 
-    assert!(found, "expected (\"issuer\", \"add\") event to be emitted");
+#[test]
+fn test_issue_credential_emits_event() {
+    let (env, client, _) = setup();
+    let (issuer, user, credential_id) = setup_credential_type(&env, &client);
+
+    let hash = soroban_sdk::BytesN::from_array(&env, &[7u8; 32]);
+    client.issue_credential(&issuer, &user, &credential_id, &hash, &0u32);
+
+    let ts = env.ledger().timestamp();
+    assert_eq!(
+        env.events().all().filter_by_contract(&client.address),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                (Symbol::new(&env, "credential"), Symbol::new(&env, "issue")).into_val(&env),
+                (issuer.clone(), user.clone(), credential_id.clone(), hash.clone(), ts)
+                    .into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_get_credentials_by_type_dedup_across_issuers() {
+    let (env, client, _) = setup();
+
+    let issuer1 = Address::generate(&env);
+    let issuer2 = Address::generate(&env);
+    client.add_issuer(
+        &issuer1,
+        &String::from_str(&env, "Issuer1"),
+        &String::from_str(&env, ""),
+    );
+    client.add_issuer(
+        &issuer2,
+        &String::from_str(&env, "Issuer2"),
+        &String::from_str(&env, ""),
+    );
+
+    let credential_id = String::from_str(&env, "verified_human");
+    client.register_credential_type(
+        &issuer1,
+        &credential_id,
+        &String::from_str(&env, "Verified Human"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+    client.register_credential_type(
+        &issuer2,
+        &credential_id,
+        &String::from_str(&env, "Verified Human"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+
+    // Overlapping user sets: user_a and user_b get it from issuer1,
+    // user_b (again) and user_c get it from issuer2.
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    let user_c = Address::generate(&env);
+
+    let hash = soroban_sdk::BytesN::from_array(&env, &[1u8; 32]);
+    client.issue_credential(&issuer1, &user_a, &credential_id, &hash, &0u32);
+    client.issue_credential(&issuer1, &user_b, &credential_id, &hash, &0u32);
+    client.issue_credential(&issuer2, &user_b, &credential_id, &hash, &0u32);
+    client.issue_credential(&issuer2, &user_c, &credential_id, &hash, &0u32);
+
+    let holders = client.get_credentials_by_type(&credential_id);
+    assert_eq!(holders.len(), 3);
+    assert!(holders.contains(&user_a));
+    assert!(holders.contains(&user_b));
+    assert!(holders.contains(&user_c));
+
+    // A credential type nobody holds returns an empty Vec.
+    let none = client.get_credentials_by_type(&String::from_str(&env, "nonexistent"));
+    assert_eq!(none.len(), 0);
 }

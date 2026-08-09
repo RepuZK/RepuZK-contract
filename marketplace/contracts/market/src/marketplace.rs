@@ -133,6 +133,19 @@ pub struct ReputationMarketplace;
 impl ReputationMarketplace {
     // ============ Initialization ============
 
+    /// Initialize the contract: set the admin, linked registries, platform
+    /// fee, fee recipient, and default `MinListingPrice` (100) /
+    /// `EscrowDurationDays` (14). Also zeroes the listing/order/feedback id
+    /// counters (all start at 1).
+    ///
+    /// Must be called exactly once after deployment.
+    ///
+    /// # Panics
+    /// Panics with `"already initialized"` if the contract has already been
+    /// initialized.
+    ///
+    /// # Auth
+    /// Requires authorization from `admin`.
     pub fn initialize(
         env: Env,
         admin: Address,
@@ -162,6 +175,22 @@ impl ReputationMarketplace {
 
     // ============ Listing Management ============
 
+    /// Create a new service listing for `provider`.
+    ///
+    /// Stores the listing, appends its id to the global `AllListings`
+    /// index, the provider's `ProviderListings` index, and the
+    /// `CategoryListings` index for `category`, then increments
+    /// `NextListingId`. Emits a `("listing", "create")` event.
+    ///
+    /// Returns the newly assigned `listing_id`.
+    ///
+    /// # Panics
+    /// - `"price below minimum"` — `price` is below `MinListingPrice`.
+    /// - `"invalid delivery days"` — `delivery_days` is `0` or greater than
+    ///   `90`.
+    ///
+    /// # Auth
+    /// Requires authorization from `provider`.
     pub fn create_listing(
         env: Env,
         provider: Address,
@@ -243,6 +272,21 @@ impl ReputationMarketplace {
         client.has_credential(user, credential)
     }
 
+    /// Verify that `user` meets `required_score` and holds every credential
+    /// in `required_credentials`, via cross-contract calls to the linked
+    /// Reputation Registry. Stores a `ReputationVerification` record for
+    /// `user` on success.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"reputation score too low"` — `user`'s score is below
+    ///   `required_score`.
+    /// - `"missing required credential"` — `user` is missing one of
+    ///   `required_credentials`.
+    ///
+    /// # Auth
+    /// Requires authorization from `user`.
     pub fn verify_reputation(
         env: Env,
         user: Address,
@@ -279,6 +323,27 @@ impl ReputationMarketplace {
 
     // ============ Order Management ============
 
+    /// Purchase the service in `listing_id`: verify the buyer meets the
+    /// listing's `min_reputation_score` and `required_credentials`, escrow
+    /// `listing.price` from `buyer` into this contract, and create a new
+    /// `Order` in `Paid` status with `delivery_deadline = now +
+    /// listing.delivery_days * 86400`. Emits an `("order", "create")`
+    /// event.
+    ///
+    /// Returns the newly assigned `order_id`.
+    ///
+    /// # Panics
+    /// - `"listing not found"` — no listing with `listing_id` exists.
+    /// - `"listing is not active"` — the listing has been deactivated.
+    /// - `"cannot purchase own listing"` — `buyer` is the listing's
+    ///   provider.
+    /// - `"reputation score too low"` — buyer's score is below
+    ///   `listing.min_reputation_score`.
+    /// - `"missing required credential"` — buyer is missing one of
+    ///   `listing.required_credentials`.
+    ///
+    /// # Auth
+    /// Requires authorization from `buyer`.
     pub fn purchase_service(
         env: Env,
         buyer: Address,
@@ -353,6 +418,18 @@ impl ReputationMarketplace {
         order_id
     }
 
+    /// Transition an order from `Paid` to `InProgress`, signalling that the
+    /// seller has begun work.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"order not found"` — no order with `order_id` exists.
+    /// - `"not order seller"` — `seller` is not the order's seller.
+    /// - `"order cannot be started"` — the order is not in `Paid` status.
+    ///
+    /// # Auth
+    /// Requires authorization from `seller`.
     pub fn start_order(env: Env, seller: Address, order_id: u64) -> bool {
         seller.require_auth();
 
@@ -372,6 +449,20 @@ impl ReputationMarketplace {
         true
     }
 
+    /// Complete an `InProgress` order: release the escrowed amount to the
+    /// seller (minus the platform fee, which goes to `FeeRecipient`), mark
+    /// the order `Completed`, and emit an `("order", "complete")` event.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"order not found"` — no order with `order_id` exists.
+    /// - `"not order seller"` — `seller` is not the order's seller.
+    /// - `"order not in progress"` — the order is not in `InProgress`
+    ///   status.
+    ///
+    /// # Auth
+    /// Requires authorization from `seller`.
     pub fn complete_order(env: Env, seller: Address, order_id: u64, _completion_proof: BytesN<32>) -> bool {
         seller.require_auth();
 
@@ -418,6 +509,24 @@ impl ReputationMarketplace {
 
     // ============ Dispute Resolution ============
 
+    /// Raise a dispute on an order that is `Paid` or `InProgress`, once its
+    /// `delivery_deadline` has passed. Marks the order `Disputed` and emits
+    /// a `("dispute", "raise")` event; an admin then resolves it via
+    /// `resolve_dispute`.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"order not found"` — no order with `order_id` exists.
+    /// - `"only buyer can raise dispute"` — `buyer` is not the order's
+    ///   buyer.
+    /// - `"cannot dispute order in current status"` — the order is not in
+    ///   `Paid` or `InProgress` status.
+    /// - `"cannot dispute before delivery deadline"` — the current ledger
+    ///   timestamp is still before `order.delivery_deadline`.
+    ///
+    /// # Auth
+    /// Requires authorization from `buyer`.
     pub fn raise_dispute(env: Env, buyer: Address, order_id: u64, _reason: String) -> bool {
         buyer.require_auth();
 
@@ -430,6 +539,9 @@ impl ReputationMarketplace {
         if order.status != OrderStatus::InProgress && order.status != OrderStatus::Paid {
             panic!("cannot dispute order in current status");
         }
+        if env.ledger().timestamp() < order.delivery_deadline {
+            panic!("cannot dispute before delivery deadline");
+        }
 
         order.status = OrderStatus::Disputed;
         env.storage().instance().set(&DataKey::Order(order_id), &order);
@@ -440,7 +552,20 @@ impl ReputationMarketplace {
         true
     }
 
-    /// Admin resolves a dispute: release_to_seller=true pays seller, false refunds buyer
+    /// Resolve a `Disputed` order. If `release_to_seller` is `true`, pays
+    /// the seller (minus platform fee) and marks the order `Completed`;
+    /// otherwise refunds the buyer in full and marks it `Refunded`. Emits a
+    /// `("dispute", "resolve")` event.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"not admin"` — `admin` does not match the stored contract admin.
+    /// - `"order not found"` — no order with `order_id` exists.
+    /// - `"order not in dispute"` — the order is not in `Disputed` status.
+    ///
+    /// # Auth
+    /// Requires authorization from the contract admin.
     pub fn resolve_dispute(env: Env, admin: Address, order_id: u64, release_to_seller: bool) -> bool {
         let stored_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         if admin != stored_admin {
@@ -477,6 +602,26 @@ impl ReputationMarketplace {
 
     // ============ Feedback System ============
 
+    /// Leave feedback (rating 1-5, comment, completion proof) on a
+    /// `Completed` order. Marks the feedback `is_verified` when
+    /// `completion_proof` is non-zero. Updates `UserFeedbackReceived` for
+    /// the seller and `UserFeedbackGiven` for the reviewer, and emits a
+    /// `("feedback", "submit")` event.
+    ///
+    /// Returns the newly assigned `feedback_id`.
+    ///
+    /// # Panics
+    /// - `"rating must be between 1 and 5"` — `rating` is out of range.
+    /// - `"order not found"` — no order with `order_id` exists.
+    /// - `"only buyer can leave feedback"` — `reviewer` is not the order's
+    ///   buyer.
+    /// - `"order not completed yet"` — the order is not in `Completed`
+    ///   status.
+    /// - `"feedback already submitted"` — feedback already exists for this
+    ///   order.
+    ///
+    /// # Auth
+    /// Requires authorization from `reviewer`.
     pub fn leave_feedback(
         env: Env,
         reviewer: Address,
@@ -547,10 +692,22 @@ impl ReputationMarketplace {
 
     // ============ Query Functions ============
 
+    /// Retrieve the full `Listing` record for `listing_id`.
+    ///
+    /// # Panics
+    /// Panics with `"listing not found"` if no listing with `listing_id`
+    /// exists.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_listing(env: Env, listing_id: u64) -> Listing {
         env.storage().instance().get(&DataKey::Listing(listing_id)).expect("listing not found")
     }
 
+    /// Return every listing whose `is_active` flag is `true`.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_active_listings(env: Env) -> Vec<Listing> {
         let all_listing_ids: Vec<u64> = env
             .storage().instance().get(&DataKey::AllListings).unwrap_or(Vec::new(&env));
@@ -567,10 +724,23 @@ impl ReputationMarketplace {
         active_listings
     }
 
+    /// Retrieve the full `Order` record for `order_id`.
+    ///
+    /// # Panics
+    /// Panics with `"order not found"` if no order with `order_id` exists.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_order(env: Env, order_id: u64) -> Order {
         env.storage().instance().get(&DataKey::Order(order_id)).expect("order not found")
     }
 
+    /// Return every order placed by `buyer`, in the order they were
+    /// created. Returns an empty `Vec` if `buyer` has never purchased
+    /// anything.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_buyer_orders(env: Env, buyer: Address) -> Vec<Order> {
         let order_ids: Vec<u64> = env
             .storage().instance().get(&DataKey::BuyerOrders(buyer)).unwrap_or(Vec::new(&env));
@@ -585,6 +755,11 @@ impl ReputationMarketplace {
         orders
     }
 
+    /// Return every order received by `seller`, in the order they were
+    /// created. Returns an empty `Vec` if `seller` has never sold anything.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_seller_orders(env: Env, seller: Address) -> Vec<Order> {
         let order_ids: Vec<u64> = env
             .storage().instance().get(&DataKey::SellerOrders(seller)).unwrap_or(Vec::new(&env));
@@ -599,10 +774,23 @@ impl ReputationMarketplace {
         orders
     }
 
+    /// Retrieve the full `Feedback` record for `feedback_id`.
+    ///
+    /// # Panics
+    /// Panics with `"feedback not found"` if no feedback with `feedback_id`
+    /// exists.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_feedback(env: Env, feedback_id: u64) -> Feedback {
         env.storage().instance().get(&DataKey::Feedback(feedback_id)).expect("feedback not found")
     }
 
+    /// Return every feedback entry `user` has received as a seller.
+    /// Returns an empty `Vec` if `user` has received no feedback yet.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_user_feedback_received(env: Env, user: Address) -> Vec<Feedback> {
         Self::get_user_feedback_received_internal(&env, user)
     }
@@ -621,6 +809,12 @@ impl ReputationMarketplace {
         feedbacks
     }
 
+    /// Return `(average_rating, feedback_count)` for `user` as a seller,
+    /// computed from every feedback entry received. Returns `(0, 0)` for a
+    /// user with no feedback, without panicking.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_user_rating(env: Env, user: Address) -> (u32, u32) {
         let feedbacks = Self::get_user_feedback_received(env, user);
         let mut total_rating = 0u32;
@@ -632,6 +826,10 @@ impl ReputationMarketplace {
         (average, count)
     }
 
+    /// Return every active listing in `category`.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_listings_by_category(env: Env, category: String) -> Vec<Listing> {
         let listing_ids: Vec<u64> = env
             .storage().instance().get(&DataKey::CategoryListings(category)).unwrap_or(Vec::new(&env));
@@ -648,6 +846,19 @@ impl ReputationMarketplace {
         listings
     }
 
+    /// Update a listing's `price` and/or `is_active` flag. Each `Option`
+    /// argument is applied only if `Some`; `new_price` is silently ignored
+    /// if it is below `MinListingPrice`. Updates `updated_at` to the
+    /// current ledger timestamp.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// - `"listing not found"` — no listing with `listing_id` exists.
+    /// - `"not listing owner"` — `provider` is not the listing's owner.
+    ///
+    /// # Auth
+    /// Requires authorization from `provider`.
     pub fn update_listing(
         env: Env,
         provider: Address,
@@ -680,6 +891,13 @@ impl ReputationMarketplace {
         true
     }
 
+    /// Compute aggregate `ProviderStats` for `provider`: total listings,
+    /// total orders received, completed/disputed order counts, total
+    /// revenue earned (after platform fee) from completed orders, and
+    /// average rating (via `get_user_rating`).
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_provider_stats(env: Env, provider: Address) -> ProviderStats {
         let listing_ids: Vec<u64> = env
             .storage().instance().get(&DataKey::ProviderListings(provider.clone())).unwrap_or(Vec::new(&env));
@@ -722,6 +940,11 @@ impl ReputationMarketplace {
         }
     }
 
+    /// Return `(active_listing_count, platform_fee_bps, min_listing_price)`
+    /// for the platform as a whole.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
     pub fn get_platform_stats(env: Env) -> (u32, u32, u32) {
         let total_listings = Self::get_active_listings(env.clone()).len() as u32;
         let fee_bps: u32 = env.storage().instance().get(&DataKey::PlatformFeeBps).unwrap_or(250);
