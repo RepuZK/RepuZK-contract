@@ -2,7 +2,7 @@
 
 use super::marketplace::*;
 use soroban_sdk::{
-    testutils::{Address as _, Events as _},
+    testutils::{Address as _, Events as _, Ledger as _},
     token::StellarAssetClient,
     vec, Address, BytesN, Env, IntoVal, String, Symbol, Vec,
 };
@@ -233,6 +233,11 @@ fn test_dispute_and_resolve_refund() {
     );
 
     t.market_client.start_order(&t.provider, &order_id);
+
+    // Disputes are only allowed once the delivery deadline has passed.
+    let deadline = t.market_client.get_order(&order_id).delivery_deadline;
+    t.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
     t.market_client.raise_dispute(
         &t.buyer,
         &order_id,
@@ -262,6 +267,11 @@ fn test_dispute_resolve_in_seller_favor() {
     );
 
     t.market_client.start_order(&t.provider, &order_id);
+
+    // Disputes are only allowed once the delivery deadline has passed.
+    let deadline = t.market_client.get_order(&order_id).delivery_deadline;
+    t.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
     t.market_client.raise_dispute(
         &t.buyer,
         &order_id,
@@ -375,6 +385,11 @@ fn test_get_provider_stats() {
     );
 
     t.market_client.start_order(&t.provider, &order2);
+
+    // Disputes are only allowed once the delivery deadline has passed.
+    let deadline = t.market_client.get_order(&order2).delivery_deadline;
+    t.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
     t.market_client.raise_dispute(
         &t.buyer,
         &order2,
@@ -388,4 +403,58 @@ fn test_get_provider_stats() {
     assert_eq!(stats.disputed_orders, 1);
     assert_eq!(stats.total_revenue, 975);
     assert_eq!(stats.avg_rating, 5);
+}
+
+#[test]
+fn test_get_user_rating_for_fresh_address_is_zero() {
+    let t = TestEnv::new();
+    let fresh = Address::generate(&t.env);
+
+    let (average, count) = t.market_client.get_user_rating(&fresh);
+    assert_eq!((average, count), (0, 0));
+}
+
+#[test]
+#[should_panic(expected = "cannot dispute before delivery deadline")]
+fn test_raise_dispute_before_deadline_panics() {
+    let t = TestEnv::new();
+    let listing_id = t.create_listing(1000);
+    let order_id = t.market_client.purchase_service(
+        &t.buyer,
+        &listing_id,
+        &BytesN::from_array(&t.env, &[9u8; 32]),
+    );
+
+    t.market_client.start_order(&t.provider, &order_id);
+
+    // No ledger time advance: still well before delivery_deadline.
+    t.market_client.raise_dispute(
+        &t.buyer,
+        &order_id,
+        &String::from_str(&t.env, "too early"),
+    );
+}
+
+#[test]
+fn test_raise_dispute_after_deadline_succeeds() {
+    let t = TestEnv::new();
+    let listing_id = t.create_listing(1000);
+    let order_id = t.market_client.purchase_service(
+        &t.buyer,
+        &listing_id,
+        &BytesN::from_array(&t.env, &[9u8; 32]),
+    );
+
+    t.market_client.start_order(&t.provider, &order_id);
+
+    let deadline = t.market_client.get_order(&order_id).delivery_deadline;
+    t.env.ledger().with_mut(|l| l.timestamp = deadline + 1);
+
+    t.market_client.raise_dispute(
+        &t.buyer,
+        &order_id,
+        &String::from_str(&t.env, "late delivery"),
+    );
+
+    assert_eq!(t.market_client.get_order(&order_id).status, OrderStatus::Disputed);
 }

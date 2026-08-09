@@ -660,3 +660,41 @@ fn test_revoke_all_proofs_zeroes_score() {
     client.revoke_proof(&hash_b, &owner);
     assert_eq!(client.get_score_value(&owner), 0);
 }
+
+#[test]
+fn test_score_caps_at_max_when_raw_total_exceeds_1000() {
+    let (env, client, _, issuer, ir_id) = setup();
+
+    use issuer_registry::issuer_registry::IssuerRegistryClient;
+    let ir_client = IssuerRegistryClient::new(&env, &ir_id);
+    ir_client.register_credential_type(
+        &issuer,
+        &String::from_str(&env, "success_rate"),
+        &String::from_str(&env, "Success Rate"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+
+    let owner = Address::generate(&env);
+
+    // 15 success_rate proofs at 70 points each = 1050 raw points, which
+    // must be capped at MAX_SCORE (1000).
+    for seed in 0u8..15u8 {
+        let proof_hash = make_hash(&env, seed);
+        let credential_hash = make_hash(&env, seed.wrapping_add(100));
+        client.register_proof(
+            &owner,
+            &issuer,
+            &proof_hash,
+            &credential_hash,
+            &String::from_str(&env, "success_rate"),
+            &0u64,
+            &String::from_str(&env, ""),
+        );
+    }
+
+    // Raw total would be 15 * 70 = 1050, so the cap must kick in.
+    assert_eq!(client.get_score_value(&owner), 1000);
+    assert_eq!(client.get_reputation_score(&owner).score, 1000);
+}

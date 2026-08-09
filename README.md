@@ -6,6 +6,7 @@
 
 **Prove your trustworthiness. Reveal nothing.**
 
+[![CI](https://github.com/RepuZK/RepuZK-contract/actions/workflows/ci.yml/badge.svg)](https://github.com/RepuZK/RepuZK-contract/actions/workflows/ci.yml)
 [![Built on Stellar](https://img.shields.io/badge/Built%20on-Stellar-7B4AE2?style=flat-square&logo=stellar)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Smart%20Contracts-Soroban-FF6B35?style=flat-square)](https://soroban.stellar.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)

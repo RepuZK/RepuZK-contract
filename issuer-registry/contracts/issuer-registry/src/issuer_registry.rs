@@ -28,6 +28,9 @@ pub enum DataKey {
     IssuerCredentialTypes(Address),
     IssuerCount,
     Admin,
+    // Reverse index: credential_type id -> deduplicated Vec<Address> of
+    // holders. Maintained inside `issue_credential`.
+    CredentialTypeHolders(String),
 }
 
 #[contract]
@@ -108,7 +111,7 @@ impl IssuerRegistry {
             .get(&DataKey::AllIssuers)
             .unwrap_or(Vec::new(&env));
 
-        issuers.push_back(issuer_address);
+        issuers.push_back(issuer_address.clone());
         env.storage().instance().set(&DataKey::AllIssuers, &issuers);
 
         let count: u32 = env
@@ -423,7 +426,10 @@ impl IssuerRegistry {
     ///
     /// Stores a mapping `(issuer_address, user_address, credential_id) →
     /// credential_data_hash` in persistent storage.  If `expires_at > 0` the
-    /// entry's TTL is extended to `expires_at` ledger sequences.
+    /// entry's TTL is extended to `expires_at` ledger sequences.  Also
+    /// updates the `CredentialTypeHolders(credential_id)` reverse index
+    /// (deduplicated) so `get_credentials_by_type` can enumerate holders,
+    /// and emits a `("credential", "issue")` event.
     ///
     /// Returns `true` on success.
     ///
@@ -454,7 +460,11 @@ impl IssuerRegistry {
             panic!("credential type not registered");
         }
 
-        let credential_key = (issuer_address, user_address, credential_id);
+        let credential_key = (
+            issuer_address.clone(),
+            user_address.clone(),
+            credential_id.clone(),
+        );
         env.storage()
             .persistent()
             .set(&credential_key, &credential_data_hash);
@@ -465,6 +475,63 @@ impl IssuerRegistry {
                 .extend_ttl(&credential_key, expires_at, expires_at);
         }
 
+        // Maintain a reverse index of credential_type -> holder addresses,
+        // deduplicated, so get_credentials_by_type() can enumerate holders
+        // without scanning every (issuer, user, credential_id) storage key.
+        let mut holders: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::CredentialTypeHolders(credential_id.clone()))
+            .unwrap_or(Vec::new(&env));
+
+        let mut already_holds = false;
+        for i in 0..holders.len() {
+            if holders.get(i).unwrap() == user_address {
+                already_holds = true;
+                break;
+            }
+        }
+        if !already_holds {
+            holders.push_back(user_address.clone());
+            env.storage().instance().set(
+                &DataKey::CredentialTypeHolders(credential_id.clone()),
+                &holders,
+            );
+        }
+
+        // Emit ("credential", "issue") event so off-chain indexers can track
+        // credential issuance, mirroring the ("issuer", "add") event in
+        // add_issuer above.
+        let now = env.ledger().timestamp();
+        let topics = (Symbol::new(&env, "credential"), Symbol::new(&env, "issue"));
+        env.events().publish(
+            topics,
+            (
+                issuer_address,
+                user_address,
+                credential_id,
+                credential_data_hash,
+                now,
+            ),
+        );
+
         true
+    }
+
+    /// Return all user addresses holding a credential of `credential_type`,
+    /// deduplicated, across every issuer.
+    ///
+    /// Backed by the `CredentialTypeHolders` reverse index maintained inside
+    /// `issue_credential`: an address appears at most once even if multiple
+    /// issuers issued a credential of this type to it.  Returns an empty
+    /// `Vec` if no credential of this type has ever been issued.
+    ///
+    /// # Auth
+    /// No authorization required — anyone may call this.
+    pub fn get_credentials_by_type(env: Env, credential_type: String) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::CredentialTypeHolders(credential_type))
+            .unwrap_or(Vec::new(&env))
     }
 }
