@@ -134,6 +134,46 @@ fn test_listing_price_too_low() {
     t.create_listing(10);
 }
 
+// ===================== initialize fee_bps validation tests =====================
+
+#[test]
+#[should_panic(expected = "fee_bps must be <= 10000")]
+fn test_initialize_rejects_fee_bps_over_100_percent() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let ir_id = env.register(issuer_registry::issuer_registry::IssuerRegistry, ());
+    let ir_client = issuer_registry::issuer_registry::IssuerRegistryClient::new(&env, &ir_id);
+    ir_client.initialize(&Address::generate(&env));
+
+    let rr_id = env.register(reputation_registry::reputation_registry::ReputationRegistry, ());
+    let rr_client = reputation_registry::reputation_registry::ReputationRegistryClient::new(&env, &rr_id);
+    rr_client.initialize(&Address::generate(&env), &ir_id);
+
+    let market_id = env.register(ReputationMarketplace, ());
+    let market_client = ReputationMarketplaceClient::new(&env, &market_id);
+
+    // 10001 bps = 100.01%, above the 10000 (100%) cap — must panic instead
+    // of silently accepting a fee that would later make release_to_seller
+    // compute a negative seller_amount and panic on every order completion.
+    market_client.initialize(
+        &Address::generate(&env),
+        &rr_id,
+        &ir_id,
+        &10_001u32,
+        &Address::generate(&env),
+    );
+}
+
+#[test]
+fn test_initialize_accepts_valid_fee_bps() {
+    // 250 bps (2.5%) is the existing valid case used throughout the rest of
+    // this test suite — confirms the new validation doesn't reject it.
+    let t = TestEnv::new();
+    let (_, fee_bps, _) = t.market_client.get_platform_stats();
+    assert_eq!(fee_bps, 250);
+}
+
 #[test]
 fn test_purchase_service_escrows_tokens() {
     let t = TestEnv::new();

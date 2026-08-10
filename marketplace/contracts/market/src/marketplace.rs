@@ -141,8 +141,13 @@ impl ReputationMarketplace {
     /// Must be called exactly once after deployment.
     ///
     /// # Panics
-    /// Panics with `"already initialized"` if the contract has already been
-    /// initialized.
+    /// - `"already initialized"` — the contract has already been
+    ///   initialized.
+    /// - `"fee_bps must be <= 10000"` — `platform_fee_bps` exceeds 10000
+    ///   (100%). Rejecting this at setup time avoids a later panic inside
+    ///   `release_to_seller` (called from `complete_order` /
+    ///   `resolve_dispute`), where a fee above 100% would make the computed
+    ///   `seller_amount` negative and abort every order completion.
     ///
     /// # Auth
     /// Requires authorization from `admin`.
@@ -159,6 +164,10 @@ impl ReputationMarketplace {
         }
 
         admin.require_auth();
+
+        if platform_fee_bps > 10_000 {
+            panic!("fee_bps must be <= 10000");
+        }
 
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::ReputationRegistry, &reputation_registry);
