@@ -485,12 +485,15 @@ impl ReputationMarketplace {
             panic!("order not in progress");
         }
 
-        // Release escrowed funds: pay seller minus platform fee
-        Self::release_to_seller(&env, &order);
-
+        // Persist the terminal status before moving any value, so the order
+        // can't be observed (or re-entered) in InProgress state while the
+        // token transfer is in flight.
         order.status = OrderStatus::Completed;
         order.completed_at = env.ledger().timestamp();
         env.storage().instance().set(&DataKey::Order(order_id), &order);
+
+        // Release escrowed funds: pay seller minus platform fee
+        Self::release_to_seller(&env, &order);
 
         let topics = (Symbol::new(&env, "order"), Symbol::new(&env, "complete"));
         env.events().publish(
@@ -589,19 +592,20 @@ impl ReputationMarketplace {
             panic!("order not in dispute");
         }
 
-        let token_client = token::Client::new(&env, &order.token_address);
+        // Persist the terminal status before moving any value (same
+        // ordering fix as complete_order): a failed or reentrant transfer
+        // can't leave the order stuck in Disputed.
+        order.status = if release_to_seller { OrderStatus::Completed } else { OrderStatus::Refunded };
+        order.completed_at = env.ledger().timestamp();
+        env.storage().instance().set(&DataKey::Order(order_id), &order);
 
         if release_to_seller {
             Self::release_to_seller(&env, &order);
-            order.status = OrderStatus::Completed;
         } else {
             // Refund buyer in full
+            let token_client = token::Client::new(&env, &order.token_address);
             token_client.transfer(&env.current_contract_address(), &order.buyer, &order.amount);
-            order.status = OrderStatus::Refunded;
         }
-
-        order.completed_at = env.ledger().timestamp();
-        env.storage().instance().set(&DataKey::Order(order_id), &order);
 
         let topics = (Symbol::new(&env, "dispute"), Symbol::new(&env, "resolve"));
         env.events().publish(topics, (order_id, release_to_seller));
@@ -856,8 +860,7 @@ impl ReputationMarketplace {
     }
 
     /// Update a listing's `price` and/or `is_active` flag. Each `Option`
-    /// argument is applied only if `Some`; `new_price` is silently ignored
-    /// if it is below `MinListingPrice`. Updates `updated_at` to the
+    /// argument is applied only if `Some`. Updates `updated_at` to the
     /// current ledger timestamp.
     ///
     /// Returns `true` on success.
@@ -865,6 +868,9 @@ impl ReputationMarketplace {
     /// # Panics
     /// - `"listing not found"` — no listing with `listing_id` exists.
     /// - `"not listing owner"` — `provider` is not the listing's owner.
+    /// - `"price below minimum"` — `new_price` is below `MinListingPrice`,
+    ///   same validation `create_listing` applies at creation time (this
+    ///   used to be silently ignored instead of rejected).
     ///
     /// # Auth
     /// Requires authorization from `provider`.
@@ -886,9 +892,10 @@ impl ReputationMarketplace {
 
         if let Some(price) = new_price {
             let min_price: i128 = env.storage().instance().get(&DataKey::MinListingPrice).unwrap_or(100);
-            if price >= min_price {
-                listing.price = price;
+            if price < min_price {
+                panic!("price below minimum");
             }
+            listing.price = price;
         }
         if let Some(is_active) = new_is_active {
             listing.is_active = is_active;

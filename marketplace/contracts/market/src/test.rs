@@ -375,6 +375,17 @@ fn test_update_listing() {
 }
 
 #[test]
+#[should_panic(expected = "price below minimum")]
+fn test_update_listing_rejects_price_below_minimum() {
+    let t = TestEnv::new();
+    let listing_id = t.create_listing(1000);
+    // MinListingPrice defaults to 100; used to be silently ignored instead
+    // of rejected, which let a caller believe a price update took effect
+    // when it hadn't.
+    t.market_client.update_listing(&t.provider, &listing_id, &Some(50i128), &None);
+}
+
+#[test]
 fn test_get_listings_by_category() {
     let t = TestEnv::new();
     t.create_listing(1000);
