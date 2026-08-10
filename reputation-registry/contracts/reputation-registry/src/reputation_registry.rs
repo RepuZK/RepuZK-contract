@@ -616,9 +616,14 @@ impl ReputationRegistry {
     /// # Panics
     /// - `"request not found"` — no request exists for `request_id`.
     /// - `"already verified"` — the request has already been resolved.
+    /// - `"issuer not registered or inactive"` — `verifier` is neither the
+    ///   contract admin nor a registered, active issuer.
     ///
     /// # Auth
-    /// Requires authorization from `verifier`.
+    /// Requires authorization from `verifier`, who must additionally be the
+    /// contract admin or a registered, active issuer (checked via the
+    /// linked Issuer Registry, same as `register_proof`) — otherwise any
+    /// address could self-authorize its own verification request.
     pub fn complete_verification(
         env: Env,
         request_id: u64,
@@ -626,7 +631,15 @@ impl ReputationRegistry {
         is_valid: bool,
     ) -> bool {
         verifier.require_auth();
-        
+
+        // Only the contract admin or a registered, active issuer may act as
+        // a verifier — otherwise any address could pass itself in as
+        // `verifier` and rubber-stamp its own request.
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if verifier != admin {
+            Self::verify_issuer(&env, verifier.clone());
+        }
+
         let mut request: VerificationRequest = env
             .storage()
             .instance()

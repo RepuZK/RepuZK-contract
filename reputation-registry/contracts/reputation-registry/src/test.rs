@@ -169,6 +169,61 @@ fn test_get_active_proofs_excludes_revoked() {
     assert_eq!(client.get_active_user_proofs(&owner).len(), 0);
 }
 
+// Issue #11: get_active_user_proofs must exclude proofs whose expires_at
+// has passed, independent of revocation. The filtering logic already lived
+// in get_active_user_proofs (is_active && (expires_at==0 || expires_at>now)),
+// but no test called it directly against an expired-but-still-`is_active`
+// proof — existing coverage only exercised revocation for this function,
+// and expiry only indirectly via expire_proofs (which flips is_active
+// itself before the read).
+#[test]
+fn test_get_active_user_proofs_excludes_expired_proof() {
+    let (env, client, _, issuer, _) = setup();
+    let owner = Address::generate(&env);
+
+    env.ledger().with_mut(|l| l.timestamp = 1_000);
+
+    // Proof already expired relative to "now" (never marked inactive via
+    // revoke_proof or expire_proofs — is_active is still true in storage).
+    let expired_hash = make_hash(&env, 120);
+    client.register_proof(
+        &owner,
+        &issuer,
+        &expired_hash,
+        &make_hash(&env, 121),
+        &String::from_str(&env, "jobs_completed"),
+        &500u64, // expires_at is in the past once we advance the clock
+        &String::from_str(&env, ""),
+    );
+
+    // A second, non-expiring proof so we can confirm filtering is selective.
+    let active_hash = make_hash(&env, 122);
+    client.register_proof(
+        &owner,
+        &issuer,
+        &active_hash,
+        &make_hash(&env, 123),
+        &String::from_str(&env, "verified_human"),
+        &0u64, // never expires
+        &String::from_str(&env, ""),
+    );
+
+    // Advance the ledger clock past expired_hash's expiry.
+    env.ledger().with_mut(|l| l.timestamp = 2_000);
+
+    // Sanity check: the expired proof's `is_active` flag is still true —
+    // only get_active_user_proofs' time-based filter should exclude it.
+    assert!(client.get_proof(&expired_hash).is_active);
+
+    let active_proofs = client.get_active_user_proofs(&owner);
+    assert_eq!(active_proofs.len(), 1);
+    assert_eq!(active_proofs.get(0).unwrap().proof_hash, active_hash);
+
+    for i in 0..active_proofs.len() {
+        assert_ne!(active_proofs.get(i).unwrap().proof_hash, expired_hash);
+    }
+}
+
 #[test]
 fn test_badge_creation_and_award() {
     let (env, client, admin, issuer, _) = setup();
@@ -455,6 +510,51 @@ fn test_complete_verification_nonexistent_request() {
     let (_, client, admin, _, _) = setup();
     // Request ID 999 was never created
     client.complete_verification(&999u64, &admin, &true);
+}
+
+// ===================== verifier authorization tests =====================
+
+#[test]
+#[should_panic(expected = "issuer not registered or inactive")]
+fn test_complete_verification_rejects_non_issuer_verifier() {
+    let (env, client, _, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    let requester = Address::generate(&env);
+
+    let proof_hash = make_hash(&env, 68);
+    client.register_proof(
+        &owner, &issuer, &proof_hash, &make_hash(&env, 69),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    let request_id = client.request_verification(&requester, &owner, &proof_hash);
+
+    // A random address that is neither the admin nor a registered issuer
+    // must not be able to self-authorize a verification result.
+    let random_address = Address::generate(&env);
+    client.complete_verification(&request_id, &random_address, &true);
+}
+
+#[test]
+fn test_complete_verification_allows_registered_active_issuer() {
+    let (env, client, _, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    let requester = Address::generate(&env);
+
+    let proof_hash = make_hash(&env, 78);
+    client.register_proof(
+        &owner, &issuer, &proof_hash, &make_hash(&env, 79),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    let request_id = client.request_verification(&requester, &owner, &proof_hash);
+
+    // `issuer` is registered and active in the linked Issuer Registry, so
+    // it should be allowed to complete the verification.
+    client.complete_verification(&request_id, &issuer, &true);
+
+    let req = client.get_verification_request(&request_id);
+    assert!(req.is_verified);
 }
 
 #[test]
