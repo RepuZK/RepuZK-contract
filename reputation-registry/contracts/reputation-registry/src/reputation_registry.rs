@@ -112,6 +112,10 @@ pub enum DataKey {
     VerificationCount,
     // All registered users (for leaderboard)
     AllUsers,
+    // Proof hashes issued by a given issuer (Address -> Vec<ProofHash>)
+    IssuerProofs(Address),
+    // Address proposed via propose_admin, awaiting accept_admin
+    PendingAdmin,
 }
 
 // ==================== Score Weights ====================
@@ -233,7 +237,18 @@ impl ReputationRegistry {
 
         user_proofs.push_back(proof_hash.clone());
         env.storage().instance().set(&DataKey::UserProofs(owner.clone()), &user_proofs);
-        
+
+        // Track this proof under its issuer, so revoke_issuer_proofs can
+        // find every proof an issuer has ever issued without an off-chain
+        // scan of every user.
+        let mut issuer_proofs: Vec<BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&DataKey::IssuerProofs(issuer.clone()))
+            .unwrap_or(Vec::new(&env));
+        issuer_proofs.push_back(proof_hash.clone());
+        env.storage().instance().set(&DataKey::IssuerProofs(issuer.clone()), &issuer_proofs);
+
         // Update total proofs count
         let total: u32 = env.storage().instance().get(&DataKey::TotalProofs).unwrap_or(0);
         env.storage().instance().set(&DataKey::TotalProofs, &(total + 1));
@@ -959,17 +974,6 @@ impl ReputationRegistry {
         result
     }
 
-    /// **Deprecated** — always returns an empty vec.
-    ///
-    /// Use `get_leaderboard` instead, which performs an on-chain sort without
-    /// requiring external indexing.
-    ///
-    /// # Auth
-    /// No authorization required — anyone may call this.
-    pub fn get_top_users(_env: Env, _limit: u32) -> Vec<(Address, u32)> {
-        Vec::new(&_env)
-    }
-    
     // ============ Admin Functions ============
     
     /// Update the address of the linked Issuer Registry contract.
@@ -989,35 +993,113 @@ impl ReputationRegistry {
         true
     }
     
-    /// Transfer the admin role to `new_admin`.
+    /// Propose `new_admin` as the next contract admin.
     ///
-    /// After this call only `new_admin` can perform admin-gated operations
-    /// such as creating badges and updating the issuer registry address.
+    /// The transfer only takes effect once `new_admin` calls `accept_admin`
+    /// — the current admin keeps full control until then, so a typo'd
+    /// address can be corrected by proposing again instead of permanently
+    /// bricking admin access.
     ///
     /// Returns `true` on success.
     ///
     /// # Auth
     /// Requires authorization from the current admin.
-    pub fn transfer_admin(env: Env, new_admin: Address) -> bool {
+    pub fn propose_admin(env: Env, new_admin: Address) -> bool {
         let current_admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         current_admin.require_auth();
-        
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+
+        env.storage().instance().set(&DataKey::PendingAdmin, &new_admin);
         true
     }
-    
-    /// Batch-revoke all proofs issued by `_issuer`.
+
+    /// Accept a pending admin transfer proposed via `propose_admin`.
     ///
-    /// **Not yet implemented** — returns `0`.  Full implementation requires a
-    /// secondary index mapping each issuer to its issued proof hashes, which
-    /// is not yet maintained by this contract.
+    /// After this call the caller becomes the contract admin and the
+    /// pending proposal is cleared.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// Panics with `"no pending admin"` if no transfer has been proposed.
     ///
     /// # Auth
-    /// No authorization required currently (stub).
-    pub fn revoke_issuer_proofs(_env: Env, _issuer: Address) -> u32 {
-        // This would require indexing all proofs by issuer
-        // For now, returns 0 - implement with proper indexing
-        0
+    /// Requires authorization from the proposed `new_admin` address —
+    /// `accept_admin` must be called by the address becoming admin, not by
+    /// the outgoing admin.
+    pub fn accept_admin(env: Env) -> bool {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .expect("no pending admin");
+
+        pending.require_auth();
+
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
+        true
+    }
+
+    /// Batch-revoke every active proof issued by `issuer`.
+    ///
+    /// Walks the `IssuerProofs` index built by `register_proof`, and for
+    /// each proof hash still `is_active` sets it inactive, recalculates the
+    /// owner's score, and emits a `("proof", "revoke")` event — the same
+    /// effect as calling `revoke_proof` once per proof, batched into a
+    /// single call for e.g. removing a compromised or deactivated issuer's
+    /// proofs at once.
+    ///
+    /// Returns the number of proofs that were revoked (already-inactive
+    /// proofs are skipped and don't count).
+    ///
+    /// # Auth
+    /// Requires authorization from `revoker`, who must be the contract
+    /// admin or `issuer` itself.
+    pub fn revoke_issuer_proofs(env: Env, issuer: Address, revoker: Address) -> u32 {
+        revoker.require_auth();
+
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        if revoker != admin && revoker != issuer {
+            panic!("not authorized to revoke");
+        }
+
+        let proof_hashes: Vec<BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&DataKey::IssuerProofs(issuer))
+            .unwrap_or(Vec::new(&env));
+
+        let mut revoked_count: u32 = 0;
+
+        for i in 0..proof_hashes.len() {
+            let hash = proof_hashes.get(i).unwrap();
+
+            let mut proof: ReputationProof = match env
+                .storage()
+                .instance()
+                .get(&DataKey::ProofData(hash.clone()))
+            {
+                Some(p) => p,
+                None => continue,
+            };
+
+            if proof.is_active {
+                proof.is_active = false;
+                let owner = proof.owner.clone();
+                env.storage()
+                    .instance()
+                    .set(&DataKey::ProofData(hash.clone()), &proof);
+
+                let topics = (Symbol::new(&env, "proof"), Symbol::new(&env, "revoke"));
+                let data = (owner.clone(), hash, env.ledger().timestamp());
+                env.events().publish(topics, data);
+
+                Self::update_reputation_score(&env, owner);
+                revoked_count += 1;
+            }
+        }
+
+        revoked_count
     }
     
     // ============ Helper Functions ============

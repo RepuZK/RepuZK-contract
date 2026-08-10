@@ -31,6 +31,8 @@ pub enum DataKey {
     // Reverse index: credential_type id -> deduplicated Vec<Address> of
     // holders. Maintained inside `issue_credential`.
     CredentialTypeHolders(String),
+    // Address proposed via propose_admin, awaiting accept_admin
+    PendingAdmin,
 }
 
 #[contract]
@@ -398,20 +400,50 @@ impl IssuerRegistry {
         false
     }
 
-    /// Transfer the admin role to a new address.
+    /// Propose `new_admin` as the next contract admin.
     ///
-    /// After this call the previous admin loses all privileged access and only
-    /// `new_admin` can perform admin-gated operations.
+    /// The transfer only takes effect once `new_admin` calls `accept_admin`
+    /// — the current admin keeps full control until then, so a typo'd
+    /// address can be corrected by proposing again instead of permanently
+    /// bricking admin access.
     ///
     /// Returns `true` on success.
     ///
     /// # Auth
     /// Requires authorization from the current admin.
-    pub fn transfer_admin(env: Env, new_admin: Address) -> bool {
+    pub fn propose_admin(env: Env, new_admin: Address) -> bool {
         let current_admin = Self::get_admin(&env);
         current_admin.require_auth();
 
-        env.storage().instance().set(&DataKey::Admin, &new_admin);
+        env.storage().instance().set(&DataKey::PendingAdmin, &new_admin);
+        true
+    }
+
+    /// Accept a pending admin transfer proposed via `propose_admin`.
+    ///
+    /// After this call the caller becomes the contract admin and the
+    /// pending proposal is cleared.
+    ///
+    /// Returns `true` on success.
+    ///
+    /// # Panics
+    /// Panics with `"no pending admin"` if no transfer has been proposed.
+    ///
+    /// # Auth
+    /// Requires authorization from the proposed `new_admin` address —
+    /// `accept_admin` must be called by the address becoming admin, not by
+    /// the outgoing admin.
+    pub fn accept_admin(env: Env) -> bool {
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::PendingAdmin)
+            .expect("no pending admin");
+
+        pending.require_auth();
+
+        env.storage().instance().set(&DataKey::Admin, &pending);
+        env.storage().instance().remove(&DataKey::PendingAdmin);
         true
     }
 

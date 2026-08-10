@@ -315,17 +315,33 @@ fn test_get_issuer_count() {
 }
 
 #[test]
-fn test_transfer_admin() {
+fn test_propose_and_accept_admin() {
     let (env, client, _) = setup();
     let new_admin = Address::generate(&env);
-    client.transfer_admin(&new_admin);
-    // New admin can add issuer (old admin would fail after transfer)
+
+    client.propose_admin(&new_admin);
+    client.accept_admin();
+
+    env.as_contract(&client.address, || {
+        let stored: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert_eq!(stored, new_admin);
+        assert!(!env.storage().instance().has(&DataKey::PendingAdmin));
+    });
+
+    // New admin can now perform admin-gated actions.
     let issuer = Address::generate(&env);
     client.add_issuer(
         &issuer,
         &String::from_str(&env, "X"),
         &String::from_str(&env, "Y"),
     );
+}
+
+#[test]
+#[should_panic(expected = "no pending admin")]
+fn test_accept_admin_without_proposal_panics() {
+    let (_, client, _) = setup();
+    client.accept_admin();
 }
 
 #[test]

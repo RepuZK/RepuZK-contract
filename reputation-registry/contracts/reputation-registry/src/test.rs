@@ -798,3 +798,109 @@ fn test_score_caps_at_max_when_raw_total_exceeds_1000() {
     assert_eq!(client.get_score_value(&owner), 1000);
     assert_eq!(client.get_reputation_score(&owner).score, 1000);
 }
+
+#[test]
+fn test_revoke_issuer_proofs_revokes_only_that_issuers_active_proofs() {
+    let (env, client, admin, issuer, ir_id) = setup();
+
+    // A second issuer, so we can prove revoke_issuer_proofs only touches
+    // proofs from the issuer it's called with.
+    use issuer_registry::issuer_registry::IssuerRegistryClient;
+    let ir_client = IssuerRegistryClient::new(&env, &ir_id);
+    let other_issuer = Address::generate(&env);
+    ir_client.add_issuer(
+        &other_issuer,
+        &String::from_str(&env, "OtherIssuer"),
+        &String::from_str(&env, "desc"),
+    );
+    ir_client.register_credential_type(
+        &other_issuer,
+        &String::from_str(&env, "jobs_completed"),
+        &String::from_str(&env, "Jobs"),
+        &String::from_str(&env, "desc"),
+        &String::from_str(&env, "{}"),
+        &false,
+    );
+
+    let owner = Address::generate(&env);
+
+    // Two proofs from `issuer`, one from `other_issuer`, all for the same owner.
+    client.register_proof(
+        &owner, &issuer, &make_hash(&env, 1), &make_hash(&env, 101),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+    client.register_proof(
+        &owner, &issuer, &make_hash(&env, 2), &make_hash(&env, 102),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+    client.register_proof(
+        &owner, &other_issuer, &make_hash(&env, 3), &make_hash(&env, 103),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    // Score before: 3 active jobs_completed proofs * 50 = 150.
+    assert_eq!(client.get_score_value(&owner), 150);
+
+    let revoked = client.revoke_issuer_proofs(&issuer, &admin);
+    assert_eq!(revoked, 2);
+
+    // The other_issuer proof is still active, so the score drops to 50, not 0.
+    assert_eq!(client.get_score_value(&owner), 50);
+    assert!(!client.get_proof(&make_hash(&env, 1)).is_active);
+    assert!(!client.get_proof(&make_hash(&env, 2)).is_active);
+    assert!(client.get_proof(&make_hash(&env, 3)).is_active);
+
+    // Calling again finds nothing left to revoke for `issuer`.
+    assert_eq!(client.revoke_issuer_proofs(&issuer, &admin), 0);
+}
+
+#[test]
+#[should_panic(expected = "not authorized to revoke")]
+fn test_revoke_issuer_proofs_by_non_admin_non_issuer_panics() {
+    let (env, client, _, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    client.register_proof(
+        &owner, &issuer, &make_hash(&env, 1), &make_hash(&env, 101),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    let random = Address::generate(&env);
+    client.revoke_issuer_proofs(&issuer, &random);
+}
+
+#[test]
+fn test_issuer_can_revoke_its_own_issued_proofs() {
+    let (env, client, _, issuer, _) = setup();
+    let owner = Address::generate(&env);
+    client.register_proof(
+        &owner, &issuer, &make_hash(&env, 1), &make_hash(&env, 101),
+        &String::from_str(&env, "jobs_completed"), &0u64, &String::from_str(&env, ""),
+    );
+
+    // The issuer itself (not just the admin) may batch-revoke its own proofs.
+    let revoked = client.revoke_issuer_proofs(&issuer, &issuer);
+    assert_eq!(revoked, 1);
+}
+
+#[test]
+fn test_propose_and_accept_admin() {
+    let (env, client, admin, _, _) = setup();
+    let _ = admin;
+    let new_admin = Address::generate(&env);
+
+    client.propose_admin(&new_admin);
+    client.accept_admin();
+
+    env.as_contract(&client.address, || {
+        let stored: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        assert_eq!(stored, new_admin);
+        assert!(!env.storage().instance().has(&DataKey::PendingAdmin));
+    });
+}
+
+#[test]
+#[should_panic(expected = "no pending admin")]
+fn test_accept_admin_without_proposal_panics() {
+    let (_, client, _, _, _) = setup();
+    client.accept_admin();
+}
