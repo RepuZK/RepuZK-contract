@@ -14,6 +14,34 @@ honest list of what's actually still open.
 
 ## Recently closed
 
+- **`revoke_issuer_proofs` was a stub** that always returned `0`
+  (`reputation-registry`). Now backed by an `IssuerProofs` index maintained
+  in `register_proof`: it walks every proof hash an issuer has issued,
+  deactivates the active ones, recalculates each affected owner's score,
+  and emits a `("proof", "revoke")` event per proof — the batch equivalent
+  of calling `revoke_proof` once per proof. Callable by the contract admin
+  or the issuer itself. Covered by
+  `test_revoke_issuer_proofs_revokes_only_that_issuers_active_proofs`,
+  `test_issuer_can_revoke_its_own_issued_proofs`, and
+  `test_revoke_issuer_proofs_by_non_admin_non_issuer_panics`.
+- **Single-step `transfer_admin` could permanently brick admin control**
+  on a typo'd address (`issuer-registry`, `reputation-registry`). Replaced
+  with `propose_admin` / `accept_admin`: the outgoing admin keeps control
+  until the proposed address calls `accept_admin` itself. Covered by
+  `test_propose_and_accept_admin` and `test_accept_admin_without_proposal_panics`
+  in both contracts' `test.rs`.
+- **`marketplace::complete_order` / `resolve_dispute` transferred escrowed
+  tokens before persisting the order's terminal status** — a
+  checks-effects-interactions violation. Both now write `Completed` /
+  `Refunded` to storage first, then move funds.
+- **`update_listing` silently ignored a `new_price` below
+  `MinListingPrice`** instead of rejecting it, so a caller could believe a
+  price update took effect when it hadn't. Now panics with `"price below
+  minimum"`, consistent with `create_listing`. Covered by
+  `test_update_listing_rejects_price_below_minimum`.
+- **Removed the dead `get_top_users` stub** (`reputation-registry`) —
+  superseded by `get_leaderboard`, which does the same job with a real
+  on-chain implementation.
 - **`complete_verification` had no verifier authorization check** — any
   address could pass itself in as `verifier` and self-authorize a
   verification request. Fixed: `verifier` must now be the contract admin or
@@ -40,12 +68,13 @@ honest list of what's actually still open.
 
 ## Open
 
-- **`revoke_issuer_proofs` is a stub.** It currently always returns `0`
-  and does nothing (`reputation-registry/contracts/reputation-registry/src/reputation_registry.rs`).
-  A full implementation needs a secondary index mapping each issuer to the
-  proof hashes it issued, which isn't maintained yet. Batch-revoking all of
-  a bad issuer's proofs today means walking `get_all_issuers` /
-  `get_user_proofs` off-chain and calling `revoke_proof` per proof.
+- **`AllUsers` / `AllListings` / `AllIssuers`-style index vectors grow
+  unbounded.** `get_leaderboard`, `get_active_listings`, and
+  `get_all_issuers` all do a full scan of their backing index. Cheap to
+  write to (still auth-gated), but there's no pagination, so a large
+  enough registry makes these reads increasingly expensive. Not urgent at
+  current scale; worth revisiting if any of these lists grow into the
+  thousands.
 
 That's the current list. Everything else previously tracked here
 (doc comments, event emissions, the leaderboard, score-cap tests, dispute

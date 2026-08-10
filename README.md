@@ -143,7 +143,7 @@ The trust anchor. Only credentials from registered issuers are accepted by the p
 | `issue_credential(issuer, recipient, type_id, hash, expires_at)` | Record a credential issuance |
 | `is_issuer(address)` | Returns `true` if address is a registered active issuer |
 | `get_all_issuers()` / `get_active_issuers()` | List issuers |
-| `transfer_admin(new_admin)` | Hand off admin role |
+| `propose_admin(new_admin)` / `accept_admin()` | Two-step admin handoff — outgoing admin proposes, incoming admin accepts |
 
 ---
 
@@ -156,7 +156,9 @@ The proof store. Anchors ZK proof hashes, computes scores, manages badges and ve
 | `initialize(admin, issuer_registry)` | Set admin and link to issuer registry |
 | `register_proof(owner, issuer, proof_hash, credential_hash, credential_type, expires_at, metadata_uri)` | Anchor a ZK proof on-chain |
 | `revoke_proof(proof_hash, revoker)` | Invalidate a proof (owner / issuer / admin) |
+| `revoke_issuer_proofs(issuer, revoker)` | Batch-revoke every active proof from `issuer` (admin or the issuer itself) |
 | `get_active_user_proofs(user)` | List all valid, non-expired proofs for a user |
+| `get_leaderboard(limit)` | Top users by score, descending, capped at 50 |
 | `get_reputation_score(user)` | Full `ReputationScore` with component breakdown |
 | `get_score_value(user)` | Raw score `u32` (consumed by Marketplace) |
 | `verify_score_threshold(user, threshold)` | Boolean — does user meet a score floor? |
